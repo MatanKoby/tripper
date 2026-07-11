@@ -1,0 +1,46 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+.layout {
+  display: grid;
+  grid-template-columns: 180px 1fr 280px;
+  min-height: 100vh;
+}
+
+.left {
+  padding: 16px;
+  border-right: 1px solid #ddd;
+}
+
+.left ul {
+  list-style: none;
+  padding: 0;
+}
+
+.left li {
+  margin: 8px 0;
+}
+
+.center {
+  padding: 16px;
+}
+
+.section {
+  padding: 24px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.right {
+  padding: 16px;
+  border-left: 1px solid #ddd;
+}
+
+.placeholder {
+  color: #888;
+}
