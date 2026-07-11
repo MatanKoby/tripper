@@ -20,8 +20,9 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 > **Pick-order pointer for "continue".** Rough priority: Batch 1 (`[MANUAL]`, runs in parallel with
 > everything) and Batch 2 first; then 3; then 4, 6, 9 can go in parallel; then 5 and 7; then 8.
-> Batch 10 is `[NOT READY]` until the hotel agent ships its API. When the user says "continue" after
-> a context clear, ask which batch to claim.
+> Batch 10 (hotel adapter) is now unblocked: the hotel agent's API and the request/response
+> contract are agreed (`spec/schema.md`). When the user says "continue" after a context clear, ask
+> which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
@@ -89,8 +90,10 @@ later batches are testable without touching prod or Nebius.
 stays agent-agnostic.
 
 ### Deliverables
-- `TripInput`, `AgentRequest`, `AgentResult` (`status`/`items`/`summary`/`error`/`diagnostics`),
-  `TripSuggestions`, the job `status` enum, and the `error` type, with validation helpers.
+- The agreed contract in `spec/schema.md`: `TripInput` (place / stay / guests / filters / lenses /
+  picks_per_lens), the hotel agent payload (`agent_status` / `warnings` / `resolved` / `lenses` /
+  `diagnostics`, plus `Pick` and `Offer`), the `TripSuggestions` transport wrapper, and shared
+  types (`Room`, `GeoPoint`, `Amenity`, `LensName`), with validation helpers.
 - Tests round-trip sample docs to/from Firestore-shaped dicts.
 
 ### Files this batch creates/edits
@@ -256,21 +259,23 @@ The agent call sits behind an adapter interface; the real hotel adapter lands in
 
 ---
 
-## Batch 10 [NOT READY] — Hotel adapter + vendor submodule
+## Batch 10 — Hotel adapter + vendor submodule
 
-**Depends on:** Batches 3, 4, 9, **and the hotel agent's clean API being available** (blocked until
-then; we will define the mapping when it lands).
+**Depends on:** Batches 3, 4, 9. (The hotel agent's clean API and the request/response contract are
+ready: `spec/schema.md`.)
 
 **Goal.** Wire the real hotel agent as the Accommodation agent.
 
 ### Deliverables
-- Add `vendor/agents/hotel-agent` as a git submodule.
-- `tripper/agents/hotel_adapter.py` calls its clean API, supplies Nebius config, and maps the result
-  to `AgentResult`; register it in the orchestrator as the Accommodation agent.
-- Adapter/contract tests (non-e2e).
+- Add `vendor/agents/hotel-finder-agent` as a git submodule (HTTPS).
+- `tripper/agents/hotel_adapter.py` maps `TripInput` to the agent's `HotelSearchRequest` (expanding
+  `guests` into one room when `stay.rooms` is null), calls `search` / `search_sync` with a `Settings`
+  built from tripper's config, and maps `HotelSearchResponse` to the hotel payload in
+  `spec/schema.md`; register it in the orchestrator as the Accommodation agent.
+- Adapter/contract tests (non-e2e; `mock` provider + `heuristic` scorer, so no keys or LLM needed).
 
 ### Files this batch creates/edits
-- `.gitmodules`, `vendor/agents/hotel-agent` (submodule), `tripper/agents/hotel_adapter.py`,
+- `.gitmodules`, `vendor/agents/hotel-finder-agent` (submodule), `tripper/agents/hotel_adapter.py`,
   `tests/test_hotel_adapter.py`, orchestrator agent-registration.
 
 ### Does NOT touch
