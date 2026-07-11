@@ -24,4 +24,5 @@ A single scrolling page with three domain sections, in a three-column frame:
   (`flows.md`).
 - While `pending` / `running`, the Accommodation container shows the "thinking / warming up" state
   (the first request can take a few minutes on a cold start: `architecture.md`).
-- On `done`, it renders `results.hotel.items` as a plain list. On `error`, it shows the message.
+- On `done`, it renders `results.hotel.lenses` (the three lens groups; flatten to a single list if
+  we keep the wireframe minimal). On `error`, it shows the message.

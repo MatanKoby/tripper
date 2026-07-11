@@ -31,8 +31,12 @@ the frontend writes a job to Firestore and listens for the result while the back
   through a tripper-owned **adapter** (`tripper/agents/<name>_adapter.py`) that calls the agent's
   clean API, supplies Nebius config, and maps the result to the contract. The orchestrator knows
   only the contract.
-- **Nebius config**: `NEBIUS_API_KEY`, `NEBIUS_ENDPOINT_URL`, `NEBIUS_ENDPOINT_ID`, read from
-  environment variables and handed to each agent by its adapter.
+- **Agent config is per-agent**, read from environment variables (or a settings object) and
+  supplied by that agent's adapter. The hotel agent uses `ENABLED_PROVIDERS`, `SCORER`,
+  `LLM_BACKEND`, and either the Ollama serverless endpoint (`NEBIUS_ENDPOINT_URL`, optional
+  `NEBIUS_ENDPOINT_TOKEN` / `NEBIUS_ENDPOINT_MODEL`, no key) or an OpenAI-compatible LLM
+  (`LLM_BASE_URL` + `LLM_API_KEY`), plus `LITEAPI_API_KEY` for real hotel data. There is no
+  `NEBIUS_ENDPOINT_ID`. It runs keyless on its defaults (`mock` provider + `heuristic` scorer).
 
 ## Deployment & secrets
 
@@ -56,7 +60,8 @@ the frontend writes a job to Firestore and listens for the result while the back
 - The Nebius endpoint **scales to zero and is not kept warm**. We accept a cold start of about 2
   to 3 minutes (sometimes more) on the first request after idle; the async job + Firestore listener
   absorbs it. There is deliberately **no keep-warm ping** (we do not want to pay to keep the
-  endpoint up when there is no work).
+  endpoint up when there is no work). This only applies when the LLM scorer is enabled; the default
+  heuristic scorer makes no LLM call.
 - Because a run can be cold start plus the full agent loop, the function timeout and the job
   **lease** are sized for the worst case, not the typical case (`flows.md`). Concrete values are
   measured later.

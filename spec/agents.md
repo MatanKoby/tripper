@@ -3,7 +3,7 @@
 ## Layout
 
 - Agents are public repos vendored as **git submodules under `vendor/agents/`** (M1:
-  `vendor/agents/hotel-agent`).
+  `vendor/agents/hotel-finder-agent`).
 - Tripper reaches each agent only through its adapter (`architecture.md` under Agent contract +
   adapters). Agents expose a clean API; tripper does not wrap any CLI.
 
