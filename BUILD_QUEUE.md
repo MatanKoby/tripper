@@ -18,28 +18,264 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 ## Un-done batches
 
-> **Pick-order pointer for "continue".** When the user types "continue" after a context clear,
-> **ask** which un-done batch to claim rather than guessing. (Keep a rough priority order here
-> as the queue fills.)
+> **Pick-order pointer for "continue".** Rough priority: Batch 1 (`[MANUAL]`, runs in parallel with
+> everything) and Batch 2 first; then 3; then 4, 6, 9 can go in parallel; then 5 and 7; then 8.
+> Batch 10 is `[NOT READY]` until the hotel agent ships its API. When the user says "continue" after
+> a context clear, ask which batch to claim.
+
+Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
 
-## Batch 1 — <short title> (example — replace or delete)
+## Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
 
-> This is a worked example showing the batch shape. Delete it once you have real batches.
+**Depends on:** none. Runs alongside the code batches; only the deploy batch (8) and a live FE need it.
 
-**Depends on:** none.
+**Goal.** Stand up the external infra M1 runs on. The user performs these in the consoles/CLI; no
+code. Region is `us-central1` throughout (`spec/architecture.md`).
 
-**Goal.** One or two sentences: what this batch delivers and why.
-
-### Deliverables
-- Concrete, checkable outcomes — not "work on X" but "X does Y, verified by Z".
+### Deliverables (checklist)
+- **GCP project** created, with **Firebase enabled** on it.
+- **Firestore** in **Native mode**, location **`us-central1`** (regional, permanent).
+- **Firebase Auth** enabled with the **Google** provider; OAuth consent screen configured.
+- **`config/access`** doc seeded: `{ "mode": "allowlist", "allowedEmails": ["<your-email-lowercased>"] }`
+  (`spec/access.md`).
+- **GitHub repo secrets**: `NEBIUS_API_KEY`, `NEBIUS_ENDPOINT_URL`, `NEBIUS_ENDPOINT_ID`, plus GCP
+  deploy auth (Workload Identity Federation preferred, or a service-account key) — auth mechanism
+  finalized in Batch 8.
+- **Vercel project** linked to this repo, root set to `web/`, with the Firebase web config exposed
+  as `VITE_FIREBASE_*` env vars.
 
 ### Files this batch creates/edits
-- `path/to/file` — what changes. (This list is what the parallelism check reads — keep it honest.)
-
-### Does NOT touch
-- Files deliberately out of scope, so a parallel batch knows it's safe.
+- None in-repo (external console/CLI setup). Values feed Batches 7 and 8.
 
 ### Verification
-- How to confirm it works (test, manual step, query).
+- Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
+  GitHub secrets present; Vercel project builds a placeholder.
+
+---
+
+## Batch 2 — Repo skeleton & tooling
+
+**Depends on:** none (local dev via the Firebase emulator).
+
+**Goal.** Python backend package skeleton, config loading, lint/test, and a local emulator setup so
+later batches are testable without touching prod or Nebius.
+
+### Deliverables
+- `tripper` package importable; `tripper/config.py` loads Nebius + Firebase settings from env and
+  fails clearly when a required var is missing.
+- `ruff` + `pytest` configured; a trivial test is green.
+- Firebase Local Emulator Suite (Firestore + Auth) configured and runnable.
+- `.env.example` lists every required variable.
+
+### Files this batch creates/edits
+- `pyproject.toml`, `tripper/__init__.py`, `tripper/config.py`, `tests/test_config.py`,
+  `firebase.json`, `.firebaserc`, `.env.example`.
+
+### Does NOT touch
+- `spec/`, `web/`, orchestrator/sweeper/adapter logic.
+
+### Verification
+- `pytest` green; `ruff check` clean; `firebase emulators:start` runs.
+
+---
+
+## Batch 3 — Agent contract types
+
+**Depends on:** Batch 2.
+
+**Goal.** The tripper/agent contract and job/domain types from `spec/schema.md`, so the orchestrator
+stays agent-agnostic.
+
+### Deliverables
+- `TripInput`, `AgentRequest`, `AgentResult` (`status`/`items`/`summary`/`error`/`diagnostics`),
+  `TripSuggestions`, the job `status` enum, and the `error` type, with validation helpers.
+- Tests round-trip sample docs to/from Firestore-shaped dicts.
+
+### Files this batch creates/edits
+- `tripper/contract.py`, `tests/test_contract.py`.
+
+### Does NOT touch
+- Orchestrator, adapters, `web/`.
+
+### Verification
+- `pytest`; invalid payloads rejected, valid ones round-trip.
+
+---
+
+## Batch 4 — Orchestrator + Firestore onCreate trigger
+
+**Depends on:** Batch 3.
+
+**Goal.** The Firestore-triggered orchestrator with the full reliability machinery (`spec/flows.md`).
+The agent call sits behind an adapter interface; the real hotel adapter lands in Batch 10.
+
+### Deliverables
+- `onCreate` handler at `users/{userId}/trips/{tripId}`.
+- Idempotent transactional claim: proceed only if `pending` OR (`running` AND `leaseExpiresAt < now`);
+  set `running`, `startedAt`, `attempts += 1`, `leaseExpiresAt`.
+- Background lease heartbeat (Firestore writes only; never pings Nebius).
+- Runs active agents through an adapter interface, validates output against the contract, writes
+  `results` + `done` or `error` + `lastError`; catch-all wraps the whole handler.
+- Tested against a test-double adapter (an in-test fake, not a shipped mock agent) on the emulator.
+
+### Files this batch creates/edits
+- `tripper/orchestrator.py`, `tripper/jobs.py` (claim/lease/state helpers),
+  `tripper/agents/base.py` (adapter interface), `main.py` (function entrypoints),
+  `tests/test_orchestrator.py`.
+
+### Does NOT touch
+- `tripper/sweeper.py`, `firestore.rules`, `web/`, `tripper/agents/hotel_adapter.py`.
+
+### Verification
+- Emulator: a `pending` doc drives to `done` via the test double; a duplicate delivery does not
+  double-run; a raised exception yields `error`.
+
+---
+
+## Batch 5 — Sweeper (scheduled) + index
+
+**Depends on:** Batch 4 (shares `tripper/jobs.py`).
+
+**Goal.** Scheduled recovery of jobs stuck in `running` after a crash/timeout (`spec/flows.md`).
+
+### Deliverables
+- Scheduled function querying `collectionGroup("trips")` for `status == "running"` AND
+  `leaseExpiresAt < now`; re-queue (`pending`) when `attempts < maxAttempts`, else terminal `error`.
+- Composite index defined; runs via the Admin SDK.
+
+### Files this batch creates/edits
+- `tripper/sweeper.py`, `firestore.indexes.json`, `main.py` (register the scheduled function),
+  `tests/test_sweeper.py`.
+
+### Does NOT touch
+- `tripper/orchestrator.py` internals (imports helpers only), `web/`, `firestore.rules`.
+
+### Verification
+- Emulator: a stale `running` doc is re-queued; one past `maxAttempts` becomes `error`.
+
+---
+
+## Batch 6 — Firestore security rules + config seed
+
+**Depends on:** Batch 3 (doc shape).
+
+**Goal.** Enforce ownership + the access allowlist at the DB layer (`spec/access.md`).
+
+### Deliverables
+- `firestore.rules` matching `access.md`: `accessOk()` (verified email + allowlist/open),
+  `config/**` locked from clients, `trips` create/read only, no client update/delete.
+- Rules unit tests on the emulator.
+
+### Files this batch creates/edits
+- `firestore.rules`, `tests/rules/` (rules tests).
+
+### Does NOT touch
+- Python backend, `web/`.
+
+### Verification
+- Rules tests: non-allowlisted create denied; allowlisted allowed; `open` mode allows any verified
+  user; cross-user read denied; client update/delete denied.
+
+---
+
+## Batch 7 — Frontend wireframe (Vite + React)
+
+**Depends on:** Batch 3 (shapes); Batch 1 (Firebase web config).
+
+**Goal.** The client-side wireframe end to end (`spec/ui.md`).
+
+### Deliverables
+- Vite + React (TS) SPA; Google sign-in (`spec/access.md`).
+- Three-column layout: left tab scroll-nav (Flights / Accommodation / Activities), center a container
+  per section (only Accommodation populated; the others "coming soon"), right the trip-input form +
+  submit + job-status indicator.
+- On submit, writes the job doc and listens; renders `results.hotel.items` on `done`, the message on
+  `error`, and a "thinking / warming up" state while `pending`/`running`.
+
+### Files this batch creates/edits
+- `web/` (the whole Vite app).
+
+### Does NOT touch
+- Python backend, `firestore.rules`.
+
+### Verification
+- Against the emulator or the real project: sign in, submit, a seeded `done` doc renders; an `error`
+  doc shows its message.
+
+---
+
+## Batch 8 — CI/CD (GitHub Actions)
+
+**Depends on:** Batches 4, 5, 6, 7, and Batch 1.
+
+**Goal.** Automated deploys for backend and frontend.
+
+### Deliverables
+- Backend workflow deploys the orchestrator + sweeper to Cloud Functions Gen2 (`us-central1`) with
+  `submodules: recursive` and `--set-env-vars` from GitHub Secrets; deploys `firestore.rules` +
+  indexes; creates/updates the Cloud Scheduler job for the sweeper.
+- Frontend deploy to Vercel.
+- GCP deploy auth finalized here (Workload Identity Federation recommended; SA key acceptable).
+
+### Files this batch creates/edits
+- `.github/workflows/backend.yml`, `.github/workflows/frontend.yml` (or Vercel git integration),
+  any deploy scripts.
+
+### Does NOT touch
+- Application logic.
+
+### Verification
+- A push to `dev` deploys; functions live in `us-central1`; rules active; the scheduler job exists.
+
+---
+
+## Batch 9 — vendor/agents read-only guardrails + bump gate
+
+**Depends on:** none. (The actual submodule add is in Batch 10.)
+
+**Goal.** Enforce the read-only rule and the submodule-bump verification gate (`spec/agents.md`).
+
+### Deliverables
+- `.claude/settings.json` deny for `Edit`/`Write` under `vendor/agents/**`, plus a `PreToolUse` hook
+  blocking edits and git-mutations there.
+- A bump-gate script: compile-check + the submodule's non-e2e tests + tripper's adapter/contract
+  tests, rolling the pointer back on failure.
+- A CI job running the gate on any submodule-pointer change.
+
+### Files this batch creates/edits
+- `.claude/settings.json`, `scripts/submodule_bump_gate.sh`,
+  `.github/workflows/submodule-gate.yml`.
+
+### Does NOT touch
+- Application logic.
+
+### Verification
+- The hook blocks a write under `vendor/agents/`; the gate script fails a deliberately broken bump.
+
+---
+
+## Batch 10 [NOT READY] — Hotel adapter + vendor submodule
+
+**Depends on:** Batches 3, 4, 9, **and the hotel agent's clean API being available** (blocked until
+then; we will define the mapping when it lands).
+
+**Goal.** Wire the real hotel agent as the Accommodation agent.
+
+### Deliverables
+- Add `vendor/agents/hotel-agent` as a git submodule.
+- `tripper/agents/hotel_adapter.py` calls its clean API, supplies Nebius config, and maps the result
+  to `AgentResult`; register it in the orchestrator as the Accommodation agent.
+- Adapter/contract tests (non-e2e).
+
+### Files this batch creates/edits
+- `.gitmodules`, `vendor/agents/hotel-agent` (submodule), `tripper/agents/hotel_adapter.py`,
+  `tests/test_hotel_adapter.py`, orchestrator agent-registration.
+
+### Does NOT touch
+- Reliability machinery (Batch 4), `web/`, `firestore.rules`.
+
+### Verification
+- The adapter maps a sample hotel-agent response to `AgentResult`; the orchestrator produces
+  `TripSuggestions.hotel`.
