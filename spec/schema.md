@@ -7,7 +7,8 @@ implementation lives in `tripper/contract.py`. This contract is agreed with the 
 
 `place` / `stay` / `guests` are shared trip context that later agents (flight, activities) reuse;
 `filters` / `lenses` / `picks_per_lens` are hotel-specific. The hotel adapter maps `TripInput` to
-the agent's `HotelSearchRequest`, expanding `guests` into a single room when `stay.rooms` is null.
+the agent's `HotelSearchRequest`, expanding `guests` into a single room when `stay.rooms` is null,
+and mapping trip-level `guest_nationality` into the agent's `stay.guest_nationality`.
 
 ## Request: TripInput (UI form and job `input`; tripper to hotel agent)
 
@@ -23,16 +24,16 @@ the agent's `HotelSearchRequest`, expanding `guests` into a single room when `st
     // require at least one of: text | city (+country_code) | center
   },
   "stay": {
-    "check_in":          "date",              // required (past dates produce a warning, not an error)
-    "check_out":         "date",              // required, > check_in
-    "currency":          "string = \"EUR\"",
-    "guest_nationality": "string = \"US\"",   // affects rates upstream (LiteAPI)
-    "rooms":             "Room[]|null"        // null = derive 1 room from guests; if set, OVERRIDES guests
+    "check_in":  "date",              // required (past dates produce a warning, not an error)
+    "check_out": "date",              // required, > check_in
+    "currency":  "string = \"EUR\"",
+    "rooms":     "Room[]|null"        // null = derive 1 room from guests; if set, OVERRIDES guests
   },
   "guests": {                          // trip-level; used only when stay.rooms is null
     "adults":        "int >=1 = 2",
     "children_ages": "int[] = []"
   },
+  "guest_nationality": "string = \"US\"",  // trip-level; adapter maps it to the agent's stay.guest_nationality
   "filters": {                         // every field optional
     "price_min":           "number|null",   // per night
     "price_max":           "number|null",
