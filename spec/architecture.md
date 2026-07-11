@@ -14,9 +14,9 @@ the frontend writes a job to Firestore and listens for the result while the back
   sign-in). See `schema.md` and `access.md`.
 - **Agents**: separate public repos, vendored as **git submodules under `vendor/agents/`**
   (read-only to tripper: `agents.md`). M1 uses the **hotel agent** only.
-- **Frontend**: a simple wireframe on **Vercel** using the Firebase JS SDK to sign in, write the
-  job, and listen for results. It talks only to Firebase, not to a custom backend endpoint. Not
-  styled; end-to-end correctness only.
+- **Frontend**: a **Vite + React (TypeScript)** single-page app on **Vercel**, using the Firebase
+  Web SDK to sign in, write the job, and listen for results. It talks only to Firebase, not to a
+  custom backend endpoint. Not styled; layout in `ui.md`.
 - **CI/CD**: **GitHub Actions**. Backend deploys to GCP; the frontend deploys to Vercel.
 
 ## Major moving parts
@@ -40,13 +40,16 @@ the frontend writes a job to Firestore and listens for the result while the back
   agent-running function(s) on every deploy (`gcloud functions deploy ... --set-env-vars ...`). No
   GCP Secret Manager in M1 (revisit for rotation: `roadmap.md`). CI is authoritative for env vars;
   do not also set them by hand.
+- **Region**: all GCP resources (Cloud Functions, Firestore, Cloud Scheduler) in **`us-central1`**,
+  chosen for the broadest free-tier coverage and universal service support. Firestore uses the
+  **regional** `us-central1` location (cheaper than multi-region), which is **permanent**.
 - **GCP services**: Cloud Functions Gen2 (event + scheduled), Firestore, Firebase Auth, Cloud
   Scheduler. All within free tier for M1.
-- **Access control replaces the old app-secret entirely.** The frontend is gated by Firebase Auth
-  and Firestore security rules; the backend runs with the Firebase Admin SDK. There is no public
-  endpoint to protect (`access.md`).
+- **Access control replaces the old app-secret entirely.** The frontend is gated by Firebase Auth,
+  the access allowlist, and Firestore security rules; the backend runs with the Firebase Admin SDK.
+  There is no public endpoint to protect (`access.md`).
 - **GCP deploy auth** from Actions (a service-account key vs Workload Identity Federation) is
-  decided in the CI batch.
+  decided in the CI batch. Infra provisioning steps are a `[MANUAL]` checklist you execute.
 
 ## Cold starts & long runs
 
@@ -55,7 +58,8 @@ the frontend writes a job to Firestore and listens for the result while the back
   absorbs it. There is deliberately **no keep-warm ping** (we do not want to pay to keep the
   endpoint up when there is no work).
 - Because a run can be cold start plus the full agent loop, the function timeout and the job
-  **lease** are sized for the worst case, not the typical case (`flows.md`).
+  **lease** are sized for the worst case, not the typical case (`flows.md`). Concrete values are
+  measured later.
 - Event-triggered functions have a lower max timeout than HTTP ones and use at-least-once delivery
   with an ack deadline, so a several-minute run risks redelivery mid-flight. **M1 baseline** is the
   event-triggered orchestrator, relying on the idempotency guard (`flows.md`). If measured
@@ -65,5 +69,6 @@ the frontend writes a job to Firestore and listens for the result while the back
 ## M1 defaults
 
 - **Async** job doc + Firestore listener (not synchronous).
-- **Google sign-in required**; **Firestore persistence** of the job doc.
+- **Google sign-in required**, gated by the access allowlist (`access.md`); **Firestore
+  persistence** of the job doc.
 - **Cloud Functions Gen2**.

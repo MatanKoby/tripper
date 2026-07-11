@@ -15,15 +15,17 @@ two sections always change in tandem, they belong in the same file. Edit via the
 
 - **`architecture.md`**: stack, moving parts, deployment, secrets, cold-start stance, M1 defaults.
 - **`schema.md`**: trip input, the tripper/agent contract, and the Firestore job document.
-- **`access.md`**: Google sign-in (Firebase Auth) and Firestore security rules.
+- **`access.md`**: Google sign-in (Firebase Auth), the access allowlist, and Firestore security rules.
 - **`flows.md`**: the async job lifecycle, reliability (lease / sweeper / retries), and errors.
+- **`ui.md`**: frontend layout (the Vite + React wireframe).
 - **`agents.md`**: agent vendoring (submodules), the read-only rule, the bump gate.
 - **`roadmap.md`**: milestones (M1 is current) and deferred work.
 
 ## Reading order
 
 For someone new: README, then `architecture.md`, then the file for the area in front of them
-(`flows.md` for the job lifecycle, `schema.md` + `access.md` for the data and its rules).
+(`flows.md` for the job lifecycle, `schema.md` + `access.md` for the data and its rules, `ui.md`
+for the frontend).
 
 For an agent claiming a batch: read the queue entry first, then the 2 to 4 spec files relevant to
 the batch's domain.

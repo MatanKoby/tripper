@@ -18,6 +18,7 @@
   cold-start wait becomes a UX problem. We deliberately avoid idle keep-warm.
 - **GCP Secret Manager + rotation** for the Nebius key (M1 uses GitHub Secrets).
 - **Workload Identity Federation** for CI-to-GCP auth if we start on a service-account key.
+- **Admin UI for the access allowlist / mode** (M1 edits `config/access` in the Firebase console).
 - **Saved / re-openable trips**: a per-user trip list and profile beyond the single job doc.
 - **Admin or cross-user views** via `collectionGroup("trips")` queries.
 - **Styled UI** beyond wireframes.
