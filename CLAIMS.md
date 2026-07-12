@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 4 — Orchestrator + Firestore onCreate trigger
+- Owner: claude
+- Started: 2026-07-12 13:51
+
 ## Completed
 
 ### Batch 3 — Agent contract types
