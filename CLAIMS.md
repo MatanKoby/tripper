@@ -19,11 +19,25 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 3 — Agent contract types
 - Owner: claude
 - Started: 2026-07-12 11:06
+- Finished: 2026-07-12 12:22
+- Commit: 302b280
 
-## Completed
+**What shipped.** The tripper/agent contract in `tripper/contract.py` (`spec/schema.md`): request
+types (`TripInput` + `Place`/`Stay`/`Guests`/`Filters`), the agent response payload (`HotelPayload`
++ `Pick`/`Offer`/`Resolved`/`Diagnostics`), the transport wrapper (`TripSuggestions` + `TripError`),
+and shared types (`Room`, `GeoPoint`) + enums (`Amenity`, `LensName`, `AgentStatus`,
+`TransportStatus`). All models are strict (`extra="forbid"`) pydantic v2 and share a `_Model` base
+with `from_dict` / `to_dict` Firestore round-trip helpers (dates as ISO strings, enums as values,
+`GeoPoint` as a `{lat, lon}` dict). Validation: `place` requires a locator (text | city+country_code
+| center), `stay.check_out > check_in`, filter range bounds (`min_star` 1..5, `min_guest_rating`
+0..10), `Pick.score` 0..1, and `TripSuggestions` status/error/hotel consistency. `tests/test_contract.py`
+(17 tests) round-trips full docs and asserts the rejection cases. Verified: `pytest` 22 passed
+(5 config + 17 contract), `ruff check` clean. No manual prereqs. Unblocks Batches 4, 6, 10.
 
 <!-- Recent finishes, newest first. Older entries archived to specflow/history/CLAIMS_DONE.md. -->
 

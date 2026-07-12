@@ -18,11 +18,12 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 ## Un-done batches
 
-> **Pick-order pointer for "continue".** Rough priority: Batch 1 (`[MANUAL]`, runs in parallel with
-> everything); then 3 (Batch 2 is done); then 4, 6, 9 can go in parallel; then 5 and 7; then 8.
-> Batch 10 (hotel adapter) is now unblocked: the hotel agent's API and the request/response
-> contract are agreed (`spec/schema.md`). When the user says "continue" after a context clear, ask
-> which batch to claim.
+> **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
+> trip, the hotel agent runs, and results render (live on Vercel). Critical path:
+> 4 → 10 (needs 9 first) → 7 → 6, with Batch 1 (`[MANUAL]`, user-run) and Batch 8 (deploy) making it
+> live. Batches 2 and 3 are done. Batches 4, 6, 9 can go in parallel; then 5 and 7; then 8. Batch 10
+> (hotel adapter) is unblocked (contract agreed, `spec/schema.md`). When the user says "continue"
+> after a context clear, ask which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
@@ -53,31 +54,6 @@ code. Region is `us-central1` throughout (`spec/architecture.md`).
 ### Verification
 - Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
   GitHub secrets present; Vercel project builds a placeholder.
-
----
-
-## Batch 3 — Agent contract types
-
-**Depends on:** Batch 2.
-
-**Goal.** The tripper/agent contract and job/domain types from `spec/schema.md`, so the orchestrator
-stays agent-agnostic.
-
-### Deliverables
-- The agreed contract in `spec/schema.md`: `TripInput` (place / stay / guests / filters / lenses /
-  picks_per_lens), the hotel agent payload (`agent_status` / `warnings` / `resolved` / `lenses` /
-  `diagnostics`, plus `Pick` and `Offer`), the `TripSuggestions` transport wrapper, and shared
-  types (`Room`, `GeoPoint`, `Amenity`, `LensName`), with validation helpers.
-- Tests round-trip sample docs to/from Firestore-shaped dicts.
-
-### Files this batch creates/edits
-- `tripper/contract.py`, `tests/test_contract.py`.
-
-### Does NOT touch
-- Orchestrator, adapters, `web/`.
-
-### Verification
-- `pytest`; invalid payloads rejected, valid ones round-trip.
 
 ---
 
