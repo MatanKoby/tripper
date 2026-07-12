@@ -21,34 +21,11 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
 > trip, the hotel agent runs, and results render (live on Vercel). Critical path:
 > 10 (needs 9 first) → 7, with Batch 8 (deploy) making it live.
-> Batches 1, 2, 3, 4, 5 are done. Batches 6, 9 are claimable now; 10 (hotel adapter) is unblocked
+> Batches 1, 2, 3, 4, 5, 6 are done. Batch 9 is claimable now; 10 (hotel adapter) is unblocked
 > (needs 9); then 7; then 8. When the user says "continue" after a context clear, ask which batch to
 > claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
-
----
-
-## Batch 6 — Firestore security rules + config seed
-
-**Depends on:** Batch 3 (doc shape).
-
-**Goal.** Enforce ownership + the access allowlist at the DB layer (`spec/access.md`).
-
-### Deliverables
-- `firestore.rules` matching `access.md`: `accessOk()` (verified email + allowlist/open),
-  `config/**` locked from clients, `trips` create/read only, no client update/delete.
-- Rules unit tests on the emulator.
-
-### Files this batch creates/edits
-- `firestore.rules`, `tests/rules/` (rules tests).
-
-### Does NOT touch
-- Python backend, `web/`.
-
-### Verification
-- Rules tests: non-allowlisted create denied; allowlisted allowed; `open` mode allows any verified
-  user; cross-user read denied; client update/delete denied.
 
 ---
 

@@ -19,11 +19,40 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 6 — Firestore security rules + config seed
 - Owner: claude
 - Started: 2026-07-12 19:12
+- Finished: 2026-07-12 19:20
+- Commit: 7c7c73b
 
-## Completed
+**What shipped.** The client-side Firestore security rules enforcing ownership + the access allowlist
+at the DB layer (`spec/access.md`). `firestore.rules` ports the spec's rules verbatim: `accessOk()`
+reads `config/access` via `get()` and returns true only for a verified email that the config admits
+(`mode == 'open'`, or the lowercased email is in `allowedEmails`) — a missing `config/access` makes the
+`get()` fail, so it denies (fail closed); `match /config/{doc}` denies all client read/write (admin/
+console only); `match /users/{uid}/trips/{tripId}` allows `read` only to the owner (`request.auth.uid
+== uid`), `create` only for a clean `pending` doc (own path, `status == "pending"`, no `results`,
+`accessOk()`), and denies `update`/`delete` (the backend transitions docs via the Admin SDK, which
+bypasses rules). `firebase.json` gains a `firestore` block pointing at `firestore.rules` +
+`firestore.indexes.json` (loads real rules into the emulator; Batch 8's CI does the actual deploy).
+
+**Tests / verification.** `tests/rules/` is a JS harness using Firebase's official
+`@firebase/rules-unit-testing` (v4) + `firebase` (v11) — the only supported way to unit-test rules; the
+Python Admin SDK bypasses them. `npm test` wraps `node --test` in `firebase emulators:exec --only
+firestore --project demo-tripper` (fake project, fully offline; the firebase CLI walks up to the
+repo-root `firebase.json`). 15 cases, all green: allowlisted create allowed; non-allowlisted denied;
+`open` mode admits any verified user; unverified email denied; unauthenticated denied; missing config
+fails closed; non-`pending` status denied; `results` present denied; create under another user's path
+denied; owner read allowed; cross-user read denied; client update denied; client delete denied;
+client read + write of `config/access` denied. Full check: 15 rules tests + 40 pytest (unchanged) pass,
+`ruff check` clean. Prereqs: Node/npm (`cd tests/rules && npm install`) plus the firebase CLI + Java
+(already needed by the pytest emulator suite); `node_modules/` is gitignored, `package-lock.json`
+committed. Note: the emulator does not enforce composite indexes, and `accessOk()`'s `get()` is not
+metered in tests. Follow-ups: deploying the rules + creating the allowlist doc live are Batch 1
+(seeded) / Batch 8 (deploy); the backend's defense-in-depth re-check of allowlist membership
+(`spec/access.md`) lives with the orchestrator, not these client rules.
 
 ### Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
 - Owner: Matan (user)

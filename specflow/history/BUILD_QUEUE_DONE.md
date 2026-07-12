@@ -18,6 +18,21 @@ repo secrets (`NEBIUS_*` + GCP deploy auth), and a Vercel project linked to `web
 env vars. Values feed Batch 7 (frontend Firebase config) and Batch 8 (deploy auth). No commit
 (external console/CLI setup); marked done by the user, not agent-verified.
 
+## Batch 6 — Firestore security rules + config seed
+Shipped the client-side Firestore security rules enforcing ownership + the access allowlist at the DB
+layer (`spec/access.md`). `firestore.rules` ports the spec verbatim: `accessOk()` reads `config/access`
+via `get()` (fail-closed if missing) and admits only a verified email under `open` mode or on the
+lowercased `allowedEmails`; `config/**` is locked from all clients; `users/{uid}/trips/{tripId}` allows
+owner-only `read` and a create-only clean `pending` doc (own path, no `results`, `accessOk()`), denying
+`update`/`delete` (the Admin SDK backend bypasses rules). `firebase.json` gains a `firestore` block
+(rules + `firestore.indexes.json`). `tests/rules/` is a JS harness using Firebase's official
+`@firebase/rules-unit-testing` (the only supported rules-test tool; Python's Admin SDK bypasses rules),
+run via `firebase emulators:exec ... node --test` — 15 cases green (allowlist gate, open mode, unverified/
+unauthenticated/fail-closed denials, shape guards, cross-user read, update/delete, config lockout);
+40 pytest unchanged, ruff clean. Key commit `7c7c73b`. Live deploy of rules + seeding the allowlist doc
+are Batch 1 (seeded) / Batch 8 (deploy); the backend's defense-in-depth allowlist re-check lives with
+the orchestrator, not these client rules.
+
 ## Batch 5 — Sweeper (scheduled) + index
 Shipped the scheduled sweeper that recovers jobs stranded in `running` after a hard crash
 (`spec/flows.md`): `tripper/sweeper.py`'s `sweep()` queries `collection_group("trips")` for
