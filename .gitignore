@@ -11,3 +11,9 @@ venv/
 .env
 .env.*
 !.env.example
+
+# Firebase emulator artifacts
+firestore-debug.log
+firebase-debug.log
+ui-debug.log
+*-debug.log
