@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 5 — Sweeper (scheduled) + index
+- Owner: claude
+- Started: 2026-07-12 16:07
+
 ## Completed
 
 ### Batch 4 — Orchestrator + Firestore onCreate trigger
