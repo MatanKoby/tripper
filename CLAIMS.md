@@ -17,7 +17,9 @@ Entry format:
 
 ## In progress
 
-<!-- One entry per actively claimed batch. -->
+### Batch 9 — vendor/agents read-only guardrails + bump gate
+- Owner: claude
+- Started: 2026-07-12 19:30
 
 ## Completed
 
