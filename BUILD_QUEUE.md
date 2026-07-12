@@ -20,40 +20,12 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
 > trip, the hotel agent runs, and results render (live on Vercel). Critical path:
-> 10 (needs 9 first) → 7, with Batch 1 (`[MANUAL]`, user-run) and Batch 8 (deploy) making it live.
-> Batches 2, 3, 4, 5 are done. Batches 6, 9 are claimable now; 10 (hotel adapter) is unblocked
+> 10 (needs 9 first) → 7, with Batch 8 (deploy) making it live.
+> Batches 1, 2, 3, 4, 5 are done. Batches 6, 9 are claimable now; 10 (hotel adapter) is unblocked
 > (needs 9); then 7; then 8. When the user says "continue" after a context clear, ask which batch to
 > claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
-
----
-
-## Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
-
-**Depends on:** none. Runs alongside the code batches; only the deploy batch (8) and a live FE need it.
-
-**Goal.** Stand up the external infra M1 runs on. The user performs these in the consoles/CLI; no
-code. Region is `us-central1` throughout (`spec/architecture.md`).
-
-### Deliverables (checklist)
-- **GCP project** created, with **Firebase enabled** on it.
-- **Firestore** in **Native mode**, location **`us-central1`** (regional, permanent).
-- **Firebase Auth** enabled with the **Google** provider; OAuth consent screen configured.
-- **`config/access`** doc seeded: `{ "mode": "allowlist", "allowedEmails": ["<your-email-lowercased>"] }`
-  (`spec/access.md`).
-- **GitHub repo secrets**: `NEBIUS_API_KEY`, `NEBIUS_ENDPOINT_URL`, `NEBIUS_ENDPOINT_ID`, plus GCP
-  deploy auth (Workload Identity Federation preferred, or a service-account key) — auth mechanism
-  finalized in Batch 8.
-- **Vercel project** linked to this repo, root set to `web/`, with the Firebase web config exposed
-  as `VITE_FIREBASE_*` env vars.
-
-### Files this batch creates/edits
-- None in-repo (external console/CLI setup). Values feed Batches 7 and 8.
-
-### Verification
-- Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
-  GitHub secrets present; Vercel project builds a placeholder.
 
 ---
 

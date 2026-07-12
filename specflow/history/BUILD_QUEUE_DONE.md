@@ -10,6 +10,14 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
+Provisioned by the user (no in-repo code) the external infrastructure M1 runs on (`spec/architecture.md`,
+region `us-central1`): a GCP project with Firebase enabled, Firestore in Native mode at `us-central1`,
+Firebase Auth with the Google provider, the `config/access` allowlist doc (`spec/access.md`), GitHub
+repo secrets (`NEBIUS_*` + GCP deploy auth), and a Vercel project linked to `web/` with `VITE_FIREBASE_*`
+env vars. Values feed Batch 7 (frontend Firebase config) and Batch 8 (deploy auth). No commit
+(external console/CLI setup); marked done by the user, not agent-verified.
+
 ## Batch 5 — Sweeper (scheduled) + index
 Shipped the scheduled sweeper that recovers jobs stranded in `running` after a hard crash
 (`spec/flows.md`): `tripper/sweeper.py`'s `sweep()` queries `collection_group("trips")` for

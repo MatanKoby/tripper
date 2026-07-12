@@ -21,6 +21,21 @@ Entry format:
 
 ## Completed
 
+### Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
+- Owner: Matan (user)
+- Started: 2026-07-12
+- Finished: 2026-07-12
+- Commit: n/a (external console/CLI setup, no in-repo files)
+
+**What shipped.** The external infrastructure M1 runs on, provisioned by the user in the GCP/Firebase,
+Vercel, and GitHub consoles (no code — `spec/architecture.md`, region `us-central1`). Per the batch
+checklist: GCP project with Firebase enabled; Firestore in Native mode at `us-central1`; Firebase Auth
+with the Google provider + OAuth consent screen; the `config/access` doc seeded with the owner allowlist
+(`spec/access.md`); GitHub repo secrets (`NEBIUS_API_KEY`, `NEBIUS_ENDPOINT_URL`, `NEBIUS_ENDPOINT_ID`,
+plus GCP deploy auth); and a Vercel project linked to `web/` with the Firebase web config exposed as
+`VITE_FIREBASE_*` env vars. These values feed Batch 7 (frontend Firebase config) and Batch 8 (deploy
+auth, which finalizes the GCP deploy mechanism). Marked done by the user; not agent-verified.
+
 ### Batch 5 — Sweeper (scheduled) + index
 - Owner: claude
 - Started: 2026-07-12 16:07
