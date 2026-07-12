@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // True when the caller has a verified Google email that the access config
+    // admits: either the config is in `open` mode, or the (lowercased) email is
+    // on the allowlist. Reads `config/access` internally; if that doc is missing
+    // the get() fails and this denies (fail closed). See spec/access.md.
+    function accessOk() {
+      let cfg = get(/databases/$(database)/documents/config/access).data;
+      return request.auth.token.email_verified == true
+             && (cfg.mode == 'open'
+                 || (request.auth.token.email.lower() in cfg.allowedEmails));
+    }
+
+    // Access config + allowlist: admin-only, edited in the console / via Admin SDK.
+    match /config/{doc} {
+      allow read, write: if false;
+    }
+
+    // Trip jobs live under the owner's own path; isolation is the {uid} segment.
+    match /users/{uid}/trips/{tripId} {
+      allow read:   if request.auth.uid == uid;
+      allow create: if request.auth.uid == uid
+                    && request.resource.data.status == "pending"
+                    && !("results" in request.resource.data)
+                    && accessOk();
+      allow update, delete: if false;
+    }
+  }
+}

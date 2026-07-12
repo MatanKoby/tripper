@@ -12,6 +12,9 @@ venv/
 .env.*
 !.env.example
 
+# Node deps (Firestore rules tests)
+node_modules/
+
 # Firebase emulator artifacts
 firestore-debug.log
 firebase-debug.log
