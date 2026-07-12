@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 2 — Repo skeleton & tooling
+- Owner: claude
+- Started: 2026-07-11 21:01
+
 ## Completed
 
 <!-- Recent finishes, newest first. Older entries archived to specflow/history/CLAIMS_DONE.md. -->
