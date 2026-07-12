@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 6 — Firestore security rules + config seed
+- Owner: claude
+- Started: 2026-07-12 19:12
+
 ## Completed
 
 ### Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
