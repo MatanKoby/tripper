@@ -19,11 +19,42 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 5 — Sweeper (scheduled) + index
 - Owner: claude
 - Started: 2026-07-12 16:07
+- Finished: 2026-07-12 16:39
+- Commit: 5ce5384
 
-## Completed
+**What shipped.** The scheduled sweeper that recovers jobs stranded in `running` after a hard crash
+(`spec/flows.md` under *Sweeper*). `tripper/sweeper.py`'s `sweep(db, *, clock, max_attempts)` queries
+`collection_group("trips")` for `status == "running"` AND `leaseExpiresAt < now` (via `FieldFilter`),
+materializes the hits, and per doc runs `_reap_one`: a `@firestore.transactional` mutation that
+**re-applies the guard** (still `running` AND lease still expired) before acting, then re-queues to
+`pending` when `attempts < maxAttempts`, else writes a terminal `error` (`TripError` kind
+`"LeaseExpired"`, `lastError` set). The re-check means a job the orchestrator reclaims between the
+query and the write is left alone, not clobbered back to `pending`. The sweeper does not bump
+`attempts` (the next `claim_job` does) and reuses `tripper.jobs` vocabulary (`_lease_expired`,
+`DEFAULT_MAX_ATTEMPTS`, `Clock`, `utcnow`) plus the `TripError` contract type; it never touches the
+orchestrator internals or `jobs.py`. `sweep` returns a `SweepReport(scanned, requeued, failed,
+skipped)` and never raises for one bad doc (logged + counted `skipped`). `main.py` registers
+`sweep_stuck_jobs` via `@scheduler_fn.on_schedule(schedule="every 5 minutes")` (region defaults to
+`us-central1`; the Cloud Scheduler job is created at deploy time in Batch 8). `firestore.indexes.json`
+defines the required composite index (`trips`, `COLLECTION_GROUP`, `status` + `leaseExpiresAt` ascending).
+
+**Tests / verification.** `tests/test_sweeper.py` (8 tests) drives it against the Firestore emulator
+(reuses `tests/conftest.py`): stale `running` → `pending` (attempts not bumped); exhausted attempts →
+terminal `LeaseExpired` error; missing `maxAttempts` → `DEFAULT_MAX_ATTEMPTS` fallback; live-lease
+`running` untouched; `done`/`error`/`pending` docs ignored; `running` with no lease not reaped;
+collection-group scope spans users and partitions outcomes; empty sweep is a zero `SweepReport`.
+Full suite: `pytest` 40 passed (5 config + 17 contract + 10 orchestrator + 8 sweeper), `ruff check`
+clean, `python -m compileall` OK, and `main.py` imports with `sweep_stuck_jobs` registered. Requires
+the `functions` extra + firebase CLI/Java for the emulator tests (no manual prereqs). Note: the
+emulator does not enforce composite indexes, so the query runs in tests without the deployed index.
+Follow-ups: deploying the index and creating the scheduler job are Batch 8. A re-queued `pending` job
+is not re-triggered by `onCreate` (which fires on create only); how M1 re-invokes the orchestrator on
+a swept-back job is not wired in this batch and is left to a later batch/spec decision.
 
 ### Batch 4 — Orchestrator + Firestore onCreate trigger
 - Owner: claude

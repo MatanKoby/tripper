@@ -21,9 +21,9 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
 > trip, the hotel agent runs, and results render (live on Vercel). Critical path:
 > 10 (needs 9 first) → 7, with Batch 1 (`[MANUAL]`, user-run) and Batch 8 (deploy) making it live.
-> Batches 2, 3, 4 are done. Batches 5 (sweeper, reuses `jobs.py`), 6, 9 are claimable now; 10 (hotel
-> adapter) is unblocked (needs 9); then 7; then 8. When the user says "continue" after a context
-> clear, ask which batch to claim.
+> Batches 2, 3, 4, 5 are done. Batches 6, 9 are claimable now; 10 (hotel adapter) is unblocked
+> (needs 9); then 7; then 8. When the user says "continue" after a context clear, ask which batch to
+> claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
@@ -54,29 +54,6 @@ code. Region is `us-central1` throughout (`spec/architecture.md`).
 ### Verification
 - Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
   GitHub secrets present; Vercel project builds a placeholder.
-
----
-
-## Batch 5 — Sweeper (scheduled) + index
-
-**Depends on:** Batch 4 (shares `tripper/jobs.py`).
-
-**Goal.** Scheduled recovery of jobs stuck in `running` after a crash/timeout (`spec/flows.md`).
-
-### Deliverables
-- Scheduled function querying `collectionGroup("trips")` for `status == "running"` AND
-  `leaseExpiresAt < now`; re-queue (`pending`) when `attempts < maxAttempts`, else terminal `error`.
-- Composite index defined; runs via the Admin SDK.
-
-### Files this batch creates/edits
-- `tripper/sweeper.py`, `firestore.indexes.json`, `main.py` (register the scheduled function),
-  `tests/test_sweeper.py`.
-
-### Does NOT touch
-- `tripper/orchestrator.py` internals (imports helpers only), `web/`, `firestore.rules`.
-
-### Verification
-- Emulator: a stale `running` doc is re-queued; one past `maxAttempts` becomes `error`.
 
 ---
 

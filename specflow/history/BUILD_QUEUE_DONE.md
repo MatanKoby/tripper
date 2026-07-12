@@ -10,6 +10,19 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 5 — Sweeper (scheduled) + index
+Shipped the scheduled sweeper that recovers jobs stranded in `running` after a hard crash
+(`spec/flows.md`): `tripper/sweeper.py`'s `sweep()` queries `collection_group("trips")` for
+`status == "running"` AND `leaseExpiresAt < now` and, per doc, runs a transactional `_reap_one` that
+re-applies the guard then re-queues to `pending` (attempts remain) or writes a terminal `LeaseExpired`
+error (attempts exhausted), returning a `SweepReport`. Reuses `tripper.jobs` (`_lease_expired`,
+`DEFAULT_MAX_ATTEMPTS`) and the `TripError` contract; never touches the orchestrator or `jobs.py`.
+`main.py` registers `sweep_stuck_jobs` via `@scheduler_fn.on_schedule("every 5 minutes")` (default
+region `us-central1`); `firestore.indexes.json` defines the composite index the query needs.
+`tests/test_sweeper.py` (8 tests) drives it against the emulator; full suite 40 passed, ruff clean.
+Key commit `5ce5384`. Index deploy + Cloud Scheduler job are Batch 8; re-invoking the orchestrator on
+a swept-back `pending` job (onCreate fires on create only) is left to a later batch.
+
 ## Batch 4 — Orchestrator + Firestore onCreate trigger
 Shipped the Firestore-triggered orchestrator with the M1 reliability machinery (`spec/flows.md`):
 `tripper/agents/base.py` (the `Agent` adapter seam), `tripper/jobs.py` (`claim_job` transactional
