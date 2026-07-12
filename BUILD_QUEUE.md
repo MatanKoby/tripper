@@ -19,7 +19,7 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 ## Un-done batches
 
 > **Pick-order pointer for "continue".** Rough priority: Batch 1 (`[MANUAL]`, runs in parallel with
-> everything) and Batch 2 first; then 3; then 4, 6, 9 can go in parallel; then 5 and 7; then 8.
+> everything); then 3 (Batch 2 is done); then 4, 6, 9 can go in parallel; then 5 and 7; then 8.
 > Batch 10 (hotel adapter) is now unblocked: the hotel agent's API and the request/response
 > contract are agreed (`spec/schema.md`). When the user says "continue" after a context clear, ask
 > which batch to claim.
@@ -53,32 +53,6 @@ code. Region is `us-central1` throughout (`spec/architecture.md`).
 ### Verification
 - Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
   GitHub secrets present; Vercel project builds a placeholder.
-
----
-
-## Batch 2 — Repo skeleton & tooling
-
-**Depends on:** none (local dev via the Firebase emulator).
-
-**Goal.** Python backend package skeleton, config loading, lint/test, and a local emulator setup so
-later batches are testable without touching prod or Nebius.
-
-### Deliverables
-- `tripper` package importable; `tripper/config.py` loads Nebius + Firebase settings from env and
-  fails clearly when a required var is missing.
-- `ruff` + `pytest` configured; a trivial test is green.
-- Firebase Local Emulator Suite (Firestore + Auth) configured and runnable.
-- `.env.example` lists every required variable.
-
-### Files this batch creates/edits
-- `pyproject.toml`, `tripper/__init__.py`, `tripper/config.py`, `tests/test_config.py`,
-  `firebase.json`, `.firebaserc`, `.env.example`.
-
-### Does NOT touch
-- `spec/`, `web/`, orchestrator/sweeper/adapter logic.
-
-### Verification
-- `pytest` green; `ruff check` clean; `firebase emulators:start` runs.
 
 ---
 
