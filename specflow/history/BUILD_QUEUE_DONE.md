@@ -10,6 +10,18 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 4 — Orchestrator + Firestore onCreate trigger
+Shipped the Firestore-triggered orchestrator with the M1 reliability machinery (`spec/flows.md`):
+`tripper/agents/base.py` (the `Agent` adapter seam), `tripper/jobs.py` (`claim_job` transactional
+idempotent claim on pending-or-expired-lease, `lease_heartbeat` daemon bump, `write_done`/
+`write_error`), `tripper/orchestrator.py` (`run_job`: claim → run agents under the heartbeat →
+validate against the contract → terminal write, with a non-crashing catch-all), and `main.py`
+(`on_document_created` entrypoint + a `build_active_agents` seam that is empty until Batch 10).
+`tests/test_orchestrator.py` (10 tests) drives it against a self-started Firestore emulator with an
+in-test fake agent; full suite 32 passed, ruff clean. Key commit `583b20d`. `requirements.txt`/
+`.gcloudignore` deferred to Batch 8; hotel adapter registration is Batch 10; the sweeper (Batch 5)
+reuses `jobs.py`.
+
 ## Batch 3 — Agent contract types
 Shipped the tripper/agent contract in `tripper/contract.py` (`spec/schema.md`): request types
 (`TripInput` + `Place`/`Stay`/`Guests`/`Filters`), the agent response payload (`HotelPayload` +

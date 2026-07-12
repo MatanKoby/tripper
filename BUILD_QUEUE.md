@@ -20,10 +20,10 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
 > trip, the hotel agent runs, and results render (live on Vercel). Critical path:
-> 4 → 10 (needs 9 first) → 7 → 6, with Batch 1 (`[MANUAL]`, user-run) and Batch 8 (deploy) making it
-> live. Batches 2 and 3 are done. Batches 4, 6, 9 can go in parallel; then 5 and 7; then 8. Batch 10
-> (hotel adapter) is unblocked (contract agreed, `spec/schema.md`). When the user says "continue"
-> after a context clear, ask which batch to claim.
+> 10 (needs 9 first) → 7, with Batch 1 (`[MANUAL]`, user-run) and Batch 8 (deploy) making it live.
+> Batches 2, 3, 4 are done. Batches 5 (sweeper, reuses `jobs.py`), 6, 9 are claimable now; 10 (hotel
+> adapter) is unblocked (needs 9); then 7; then 8. When the user says "continue" after a context
+> clear, ask which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
@@ -54,36 +54,6 @@ code. Region is `us-central1` throughout (`spec/architecture.md`).
 ### Verification
 - Google sign-in works in a scratch test; `config/access` visible in the Firestore console; all
   GitHub secrets present; Vercel project builds a placeholder.
-
----
-
-## Batch 4 — Orchestrator + Firestore onCreate trigger
-
-**Depends on:** Batch 3.
-
-**Goal.** The Firestore-triggered orchestrator with the full reliability machinery (`spec/flows.md`).
-The agent call sits behind an adapter interface; the real hotel adapter lands in Batch 10.
-
-### Deliverables
-- `onCreate` handler at `users/{userId}/trips/{tripId}`.
-- Idempotent transactional claim: proceed only if `pending` OR (`running` AND `leaseExpiresAt < now`);
-  set `running`, `startedAt`, `attempts += 1`, `leaseExpiresAt`.
-- Background lease heartbeat (Firestore writes only; never pings Nebius).
-- Runs active agents through an adapter interface, validates output against the contract, writes
-  `results` + `done` or `error` + `lastError`; catch-all wraps the whole handler.
-- Tested against a test-double adapter (an in-test fake, not a shipped mock agent) on the emulator.
-
-### Files this batch creates/edits
-- `tripper/orchestrator.py`, `tripper/jobs.py` (claim/lease/state helpers),
-  `tripper/agents/base.py` (adapter interface), `main.py` (function entrypoints),
-  `tests/test_orchestrator.py`.
-
-### Does NOT touch
-- `tripper/sweeper.py`, `firestore.rules`, `web/`, `tripper/agents/hotel_adapter.py`.
-
-### Verification
-- Emulator: a `pending` doc drives to `done` via the test double; a duplicate delivery does not
-  double-run; a raised exception yields `error`.
 
 ---
 

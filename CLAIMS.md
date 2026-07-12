@@ -19,11 +19,43 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 4 — Orchestrator + Firestore onCreate trigger
 - Owner: claude
 - Started: 2026-07-12 13:51
+- Finished: 2026-07-12 14:40
+- Commit: 583b20d
 
-## Completed
+**What shipped.** The Firestore-triggered orchestrator with the M1 reliability machinery
+(`spec/flows.md`). `tripper/agents/base.py` defines the `Agent` adapter interface (the orchestrator
+sees only this + the contract; `name` is the transport slot, e.g. `"hotel"`). `tripper/jobs.py`
+holds the doc-state primitives: `claim_job` (a `@firestore.transactional` claim that proceeds only
+if `pending` OR `running` with an expired lease, then sets `running`/`startedAt`/`attempts += 1`/
+`leaseExpiresAt` and seeds `maxAttempts`), `lease_heartbeat` (a daemon-thread context manager that
+bumps `leaseExpiresAt` every 45s; Firestore write only, never pings the agent), and
+`write_done`/`write_error`. `tripper/orchestrator.py`'s `run_job` strings them together: claim →
+(skip if not claimed) → run agents under the heartbeat → validate output against the contract
+(`HotelPayload` + `TripSuggestions`) → `write_done`, with a catch-all that persists `error` +
+`lastError` and never lets the handler crash (so no redelivery storm; hard crashes fall to the
+lease + sweeper). `main.py` is the composition root: `initialize_app()`, the
+`on_document_created("users/{userId}/trips/{tripId}")` entrypoint, and a `build_active_agents(settings)`
+seam that returns `[]` until Batch 10 registers the hotel adapter (kept out of the reliability core).
+Tuning constants: `LEASE_BUDGET` 15 min, `HEARTBEAT_INTERVAL` 45s, `DEFAULT_MAX_ATTEMPTS` 3.
+
+**Tests / verification.** `tests/test_orchestrator.py` (10 tests) runs against the Firestore emulator
+via an in-test fake agent (not a shipped mock). `tests/conftest.py` self-starts a firestore-only
+emulator on a `demo-tripper` project (reuses `FIRESTORE_EMULATOR_HOST` / an already-listening port;
+skips cleanly if the CLI/emulator is unavailable) and resets data per test. Covers: pending→done,
+duplicate delivery does not double-run, live-lease running is skipped, expired-lease running is
+reclaimed (attempts→2), agent exception → `error`, invalid agent output → `error` (contract
+validation), malformed input → `error` before any agent runs, claim seeds reliability fields, missing
+doc not claimed, heartbeat bumps the lease. Full suite: `pytest` 32 passed (5 config + 17 contract +
+10 orchestrator), `ruff check` clean, `python -m compileall` OK, and `main.py` imports with the
+trigger endpoint registered. Requires the `functions` extra (`pip install -e '.[functions]'`) plus
+the firebase CLI + Java for the emulator tests. No manual prereqs. Follow-ups: `requirements.txt` /
+`.gcloudignore` are Batch 8 (deploy); the real hotel adapter + agent registration is Batch 10; the
+sweeper reuses these `jobs.py` helpers in Batch 5.
 
 ### Batch 3 — Agent contract types
 - Owner: claude
