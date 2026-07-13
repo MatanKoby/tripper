@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "permissions": {
+    "deny": [
+      "Edit(vendor/agents/**)",
+      "Write(vendor/agents/**)",
+      "NotebookEdit(vendor/agents/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|MultiEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR:-.}/scripts/vendor_agents_guard.sh\"",
+            "statusMessage": "Checking vendor/agents read-only guard"
+          }
+        ]
+      }
+    ]
+  }
+}
