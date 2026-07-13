@@ -10,6 +10,22 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 10 — Hotel adapter + vendor submodule
+Wired the real hotel agent as the Accommodation agent (`spec/schema.md`, `spec/agents.md`). Added
+`vendor/agents/hotel-finder-agent` as an HTTPS git submodule (tracking `dev`, pinned `c739d64`; package
+`hotel_finder`) and `tripper/agents/hotel_adapter.py`: `HotelAdapter` (slot `"hotel"`) maps `TripInput`
+→ the agent's `HotelSearchRequest` (guests expand into one room when `stay.rooms` is null; a set
+`stay.rooms` overrides; `guest_nationality` is request-level on both sides), builds the agent's
+`Settings` from tripper config via `agent_env()`, calls `search_sync`, and maps `HotelSearchResponse`
+→ `HotelPayload` (drops the `request_id` echo, re-validates against tripper's contract). Registered in
+`main.build_active_agents` via a function-local import so `main` imports without the submodule.
+`tests/test_hotel_adapter.py` (10 tests, `importorskip`s `hotel_finder`) covers both mapping
+directions, settings, a full mock+heuristic run, and an emulator-backed `run_job` round-trip to `done`
+with `results.hotel`. 50 pytest passed, ruff clean. Key commit `d32235b`. Note: `spec/schema.md` prose
+still says `guest_nationality` maps to the agent's `stay.guest_nationality`, but that field does not
+exist on the agent's `Stay` (it is request-level); flagged for a user-confirmed `spec:` fix. Submodule
+deploy packaging is Batch 8.
+
 ## Batch 1 [MANUAL] — Provision GCP/Firebase, Vercel, GitHub
 Provisioned by the user (no in-repo code) the external infrastructure M1 runs on (`spec/architecture.md`,
 region `us-central1`): a GCP project with Firebase enabled, Firestore in Native mode at `us-central1`,

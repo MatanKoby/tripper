@@ -19,10 +19,10 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 ## Un-done batches
 
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
-> trip, the hotel agent runs, and results render (live on Vercel). Critical path:
-> 10 → 7, with Batch 8 (deploy) making it live.
-> Batches 1, 2, 3, 4, 5, 6, 9 are done. Batch 10 (hotel adapter) is claimable now (its deps 3, 4, 9
-> are complete); Batch 7 (frontend) is claimable in parallel (no file overlap with 10); then 8.
+> trip, the hotel agent runs, and results render (live on Vercel). Critical path now: Batch 7
+> (frontend) → Batch 8 (deploy), which makes it live.
+> Batches 1, 2, 3, 4, 5, 6, 9, 10 are done. Batch 7 (frontend) is claimable now (deps 1, 3 complete);
+> Batch 8 (deploy) depends on 4, 5, 6, 7, 1 — claimable once 7 lands.
 > When the user says "continue" after a context clear, ask which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
@@ -79,29 +79,3 @@ Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, 
 - A push to `dev` deploys; functions live in `us-central1`; rules active; the scheduler job exists.
 
 ---
-
-## Batch 10 — Hotel adapter + vendor submodule
-
-**Depends on:** Batches 3, 4, 9. (The hotel agent's clean API and the request/response contract are
-ready: `spec/schema.md`.)
-
-**Goal.** Wire the real hotel agent as the Accommodation agent.
-
-### Deliverables
-- Add `vendor/agents/hotel-finder-agent` as a git submodule (HTTPS).
-- `tripper/agents/hotel_adapter.py` maps `TripInput` to the agent's `HotelSearchRequest` (expanding
-  `guests` into one room when `stay.rooms` is null), calls `search` / `search_sync` with a `Settings`
-  built from tripper's config, and maps `HotelSearchResponse` to the hotel payload in
-  `spec/schema.md`; register it in the orchestrator as the Accommodation agent.
-- Adapter/contract tests (non-e2e; `mock` provider + `heuristic` scorer, so no keys or LLM needed).
-
-### Files this batch creates/edits
-- `.gitmodules`, `vendor/agents/hotel-finder-agent` (submodule), `tripper/agents/hotel_adapter.py`,
-  `tests/test_hotel_adapter.py`, orchestrator agent-registration.
-
-### Does NOT touch
-- Reliability machinery (Batch 4), `web/`, `firestore.rules`.
-
-### Verification
-- The adapter maps a sample hotel-agent response to `AgentResult`; the orchestrator produces
-  `TripSuggestions.hotel`.

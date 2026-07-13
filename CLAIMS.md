@@ -19,11 +19,47 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 10 — Hotel adapter + vendor submodule
 - Owner: claude
 - Started: 2026-07-13 12:58
+- Finished: 2026-07-13 13:54
+- Commit: d32235b
 
-## Completed
+**What shipped.** The real hotel agent wired as the Accommodation agent (`spec/schema.md`,
+`spec/agents.md`). `vendor/agents/hotel-finder-agent` added as an HTTPS git submodule
+(`https://github.com/MatanKoby/hotel-finder-agent.git`, tracking `dev`, pinned at `c739d64`); its
+package is `hotel_finder` (src layout). `tripper/agents/hotel_adapter.py`'s `HotelAdapter(Agent)`
+(transport slot `"hotel"`) is the one place that knows the agent's API: `_to_request` maps
+`TripInput` to the agent's `HotelSearchRequest` field-by-field (expanding `guests` into a single room
+when `stay.rooms` is null; a set `stay.rooms` overrides `guests`; `guest_nationality` is trip-level on
+both sides, mapped request-level → request-level; amenities list → set, lenses/filters/place/center
+carried across), `_agent_settings` builds the agent's `Settings` from tripper's config via
+`Settings.agent_env()` (lower-cased keys as init kwargs; empty values dropped so the agent keeps its
+keyless `mock`+`heuristic` defaults), `run` calls the agent's `search_sync`, and `_to_payload` maps
+`HotelSearchResponse` back by dumping to JSON, dropping the `request_id` echo, and re-validating
+against tripper's `HotelPayload` (so upstream drift fails loudly at the boundary). Registered in
+`main.build_active_agents` via a **function-local** import of `HotelAdapter`, so importing `main`
+never requires the submodule (resolved at trigger time, where the deploy has vendored it).
+
+**Tests / verification.** `tests/test_hotel_adapter.py` (10 tests) is non-e2e (agent on `mock`
+provider + `heuristic` scorer, no keys/LLM); the module `pytest.importorskip`s `hotel_finder` so it
+skips cleanly where the submodule is not installed (prereq: `pip install -e
+vendor/agents/hotel-finder-agent`, which pulls `openai`+`httpx`). Covers both mapping directions
+(guests→room expansion, rooms-override, request-level `guest_nationality`, place/filters/lenses,
+lenses-None passthrough, response→payload with `request_id` dropped), `_agent_settings` from tripper
+config, a full `HotelAdapter.run` yielding a populated `HotelPayload`, and an emulator-backed
+`run_job([HotelAdapter])` round-trip driving a pending doc to `done` with `results.hotel` populated
+(the batch's "orchestrator produces `TripSuggestions.hotel`" check). Full suite: `pytest` 50 passed
+(40 prior + 10), `ruff check` clean, `compileall` OK, `main` imports with both triggers registered
+and `build_active_agents` returning `[HotelAdapter("hotel")]`. Prereqs: the submodule installed
+editable (as above) + the firebase CLI/Java for the emulator-backed test (skips without them).
+Follow-ups: **spec/schema.md is inaccurate** — its prose says the adapter maps `guest_nationality`
+to the agent's `stay.guest_nationality`, but the agent's `Stay` has no such field; it is request-level
+on both sides (the code is correct). Left for the user to confirm before a `spec:` fix (surfaced, not
+freelanced). Deploy packaging of the submodule into the Cloud Function is Batch 8; the submodule-bump
+gate (Batch 9) now has real test targets.
 
 ### Batch 9 — vendor/agents read-only guardrails + bump gate
 - Owner: claude
