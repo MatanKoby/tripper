@@ -1,0 +1,4 @@
+[submodule "vendor/agents/hotel-finder-agent"]
+	path = vendor/agents/hotel-finder-agent
+	url = https://github.com/MatanKoby/hotel-finder-agent.git
+	branch = dev

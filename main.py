@@ -38,11 +38,14 @@ SWEEP_SCHEDULE = "every 5 minutes"
 def build_active_agents(settings: Settings) -> list[Agent]:
     """The domain agents the orchestrator runs for each trip.
 
-    Empty in Batch 4: the adapter interface ships without a concrete agent. Batch 10 registers the
-    hotel adapter here (built from ``settings``). Isolated from the reliability machinery so agent
-    wiring changes never reach into the orchestrator.
+    M1 has one: the hotel adapter (Batch 10), built from ``settings``. The import is function-local
+    so importing this module never requires the vendored agent submodule (``spec/agents.md``); it is
+    resolved at trigger time, where the deploy has vendored it. Isolated from the reliability
+    machinery so agent wiring changes never reach into the orchestrator.
     """
-    return []
+    from tripper.agents.hotel_adapter import HotelAdapter
+
+    return [HotelAdapter(settings)]
 
 
 @firestore_fn.on_document_created(document=TRIP_DOCUMENT)
