@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 8 — CI/CD (GitHub Actions)
+- Owner: claude
+- Started: 2026-07-13 18:00
+
 ## Completed
 
 ### Batch 7 — Frontend wireframe (Vite + React)
