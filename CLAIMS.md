@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 7 — Frontend wireframe (Vite + React)
+- Owner: claude
+- Started: 2026-07-13 16:35
+
 ## Completed
 
 ### Batch 10 — Hotel adapter + vendor submodule
