@@ -44,26 +44,50 @@ Run this when wrapping up. `AGENTS.md` carries only the pointer to this file.
 
 ## Hand the context back (if your agent supports context compaction)
 
-6. Offer a context handoff at the end of a batch — and **whenever the context window grows
-   heavy**, not only at batch end. First decide whether anything in-context needs to survive the
-   reset:
+6. **End every batch by offering a context handoff** (and do it whenever the context window grows
+   heavy, not only at batch end). This is not optional bookkeeping. It is the moment the whole
+   protocol pays off: you wrote everything durable to the repo (spec, `git log`, `BUILD_QUEUE.md`,
+   `CLAIMS.md`) precisely so the transcript can be thrown away, and offering the reset now is how the
+   user actually collects that benefit:
 
-   - **Nothing to carry** — everything is already durable in the repo (spec, `git log`,
-     `BUILD_QUEUE.md`, `CLAIMS.md`). Don't write a keep-line at all: an empty compaction is just a
-     slower restart. Suggest a plain clear/restart plus a one-line re-prompt (e.g. "continue the
-     milestone").
-   - **Something to carry** — suggest compacting, and keep *only* that, briefly:
-     - **Keep:** durable takeaways **not recoverable elsewhere** — a decision just made but not yet
-       written down, a forward pointer to the next likely batch and why.
-     - **Drop:** blow-by-blow execution detail, specific file paths / SHAs (git + `CLAIMS.md` own
-       those), resolved debug threads, intermediate states, and anything already in spec / queue /
-       claims / git.
+   - **Cheaper next batch.** Context carried across several batches bills every later token for no
+     added value; a compact or a clear resets that.
+   - **More reliable next batch.** Long contexts degrade attention and raise error rates, so the
+     reset makes the next build more accurate, not only cheaper.
+   - **A decision point.** This is the one moment the user can stop, redirect, or spend down cost
+     before more work chains on. Skipping it silently takes that choice away.
 
-   The test for each keep-line item: could a fresh agent reconstruct it from the repo? If yes,
-   leave it out.
+   Do not talk yourself out of this as "noise." Repeating the offer at each boundary is the feature,
+   not clutter: it is the only place the user gets to act on cost and context. Building several
+   batches in a row without offering it once is exactly the failure this step exists to prevent.
+
+   Decide what, if anything, must survive the reset:
+
+   - **Nothing to carry:** everything is already durable in the repo. Don't write a keep-line at all
+     (an empty compaction is just a slower restart). Suggest a plain clear/restart plus a one-line
+     re-prompt (e.g. "continue the milestone").
+   - **Something to carry:** suggest compacting, and keep *only* that, briefly.
+     - **Keep** durable takeaways not recoverable elsewhere: a decision just made but not yet written
+       down, a forward pointer to the next likely batch and why.
+     - **Drop** blow-by-blow execution detail, specific file paths and SHAs (git and `CLAIMS.md` own
+       those), resolved debug threads, intermediate states, and anything already in spec, queue,
+       claims, or git.
+
+   The test for each keep-line item: could a fresh agent reconstruct it from the repo? If yes, leave
+   it out.
+
+   **Close every finish with this line (keep the shape, fill the brackets):**
+
+   > Batch N complete and committed. The repo is the source of truth, so this transcript is
+   > disposable. Recommend `/compact` (or `/clear` plus a one-line re-prompt) before the next batch.
+   > Keep-line: `<one line of what must survive, or "nothing to carry, it's all in the repo">`.
+
+   A finish that does not end with this line is not done.
 
 ## Next
 
 7. Decide: claim the next eligible batch (run `claim-batch.md`) or stop. Either is fine — don't
-   auto-chain unless the user asked you to.
+   auto-chain unless the user asked you to. A user's "continue" authorizes claiming the next batch;
+   it does **not** waive the step 6 handoff line above. Chaining and checkpointing aren't in
+   conflict: offer the line, then proceed on the user's call.
 <!-- specflow:end -->

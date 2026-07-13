@@ -16,6 +16,10 @@ Pick the **single** file whose concern matches the change. If the change natural
 multiple files, that's a signal the concern might be miscarved — **flag it to the user before
 duplicating content.** Don't just write to both files.
 
+For example, roadmap, milestones, and "what's next" are one concern: they live in
+`spec/roadmap.md` (create it if absent), never in the project README and never scattered across
+other files.
+
 ## Cross-reference, don't restate
 
 When file A needs a concept that lives in file B, link by **file path** — e.g.
@@ -28,6 +32,19 @@ The spec describes the **current intended design**, not the history. When a sect
 reflecting live code — an abandoned approach, a removed table, a deprecated flow — move it to
 `spec/archive.md` rather than leaving it inline. `archive.md` is the institutional memory;
 everything else is current.
+
+## Research notes — the pre-design exception
+
+Exploratory research (prior-art scans, option/tradeoff analysis) comes *before* design and is
+**not yet design**, so it lives outside the rules above — in an optional `spec/research/`
+sub-folder (dated snapshots, `YYYY-MM-topic.md`):
+
+- **Gate-free.** A note asserts no design, so write and update it freely. Only *graduating a
+  conclusion* into the spec (e.g. `open-questions.md` / `roadmap.md`) needs the user's sign-off.
+- **Write as you go.** Checkpoint findings during the session, not only at the end — the
+  transcript isn't durable (the reason this procedure exists), so a crashed session loses nothing.
+- **Dated snapshots, exempt from the archive rule.** A note records what was true when written;
+  don't rewrite it to stay current. Conclusions graduate upward; the note stays as the evidence trail.
 
 ## Size watch
 
