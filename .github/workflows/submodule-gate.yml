@@ -41,8 +41,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install tripper (dev)
-        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Install tripper (dev + functions)
+        # `functions` (firebase-admin/-functions) is needed even for the gate's check 3:
+        # `pytest` imports every test module at collection time, and tripper.jobs/sweeper/
+        # orchestrator import `firebase_admin` at module load, so collection fails without it.
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev,functions]'
 
       - name: Install the vendored agent + its test deps (best-effort)
         # The gate runs the submodule's own tests and tripper's adapter tests, both
