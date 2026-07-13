@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 10 — Hotel adapter + vendor submodule
+- Owner: claude
+- Started: 2026-07-13 12:58
+
 ## Completed
 
 ### Batch 9 — vendor/agents read-only guardrails + bump gate
