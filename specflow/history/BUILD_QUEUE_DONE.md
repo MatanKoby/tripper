@@ -18,6 +18,21 @@ repo secrets (`NEBIUS_*` + GCP deploy auth), and a Vercel project linked to `web
 env vars. Values feed Batch 7 (frontend Firebase config) and Batch 8 (deploy auth). No commit
 (external console/CLI setup); marked done by the user, not agent-verified.
 
+## Batch 9 — vendor/agents read-only guardrails + bump gate
+Shipped the read-only guardrails for vendored agents and the submodule-bump verification gate
+(`spec/agents.md`). `.claude/settings.json` (new) denies `Edit`/`Write`/`NotebookEdit` under
+`vendor/agents/**` and adds a `PreToolUse` hook running `scripts/vendor_agents_guard.sh`, which emits a
+`deny` decision for edits or git/file mutations inside the submodule (redirects, `sed -i`, `rm`/`mv`/…,
+`git -C`/`cd &&` git-writes) while allowing pointer advances (`git submodule update --remote`, `git add`
+of the gitlink) and read-only inspection. `scripts/submodule_bump_gate.sh` compile-checks the submodule,
+runs its non-e2e tests + tripper's adapter/contract tests, rolls the pointer back on failure and commits
+the bump on green; `--check-only` validates without mutating (CI). `.github/workflows/submodule-gate.yml`
+runs the gate `--check-only` on any push/PR touching `.gitmodules` or `vendor/agents/**`. Verified by a
+20+ case guard pipe-test, a live-denied `Write` under `vendor/agents/`, and gate runs against broken/clean
+fixtures (fail rc 1 / pass rc 0 with e2e deselected); 40 pytest + ruff still green. Key commit `6a3db30`.
+Adds a 4th file beyond the three the queue listed (`scripts/vendor_agents_guard.sh`, the hook helper).
+The real submodule + adapter (and thus the gate's live test targets) arrive in Batch 10.
+
 ## Batch 6 — Firestore security rules + config seed
 Shipped the client-side Firestore security rules enforcing ownership + the access allowlist at the DB
 layer (`spec/access.md`). `firestore.rules` ports the spec verbatim: `accessOk()` reads `config/access`

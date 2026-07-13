@@ -20,10 +20,10 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
 > trip, the hotel agent runs, and results render (live on Vercel). Critical path:
-> 10 (needs 9 first) → 7, with Batch 8 (deploy) making it live.
-> Batches 1, 2, 3, 4, 5, 6 are done. Batch 9 is claimable now; 10 (hotel adapter) is unblocked
-> (needs 9); then 7; then 8. When the user says "continue" after a context clear, ask which batch to
-> claim.
+> 10 → 7, with Batch 8 (deploy) making it live.
+> Batches 1, 2, 3, 4, 5, 6, 9 are done. Batch 10 (hotel adapter) is claimable now (its deps 3, 4, 9
+> are complete); Batch 7 (frontend) is claimable in parallel (no file overlap with 10); then 8.
+> When the user says "continue" after a context clear, ask which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
@@ -77,31 +77,6 @@ Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, 
 
 ### Verification
 - A push to `dev` deploys; functions live in `us-central1`; rules active; the scheduler job exists.
-
----
-
-## Batch 9 — vendor/agents read-only guardrails + bump gate
-
-**Depends on:** none. (The actual submodule add is in Batch 10.)
-
-**Goal.** Enforce the read-only rule and the submodule-bump verification gate (`spec/agents.md`).
-
-### Deliverables
-- `.claude/settings.json` deny for `Edit`/`Write` under `vendor/agents/**`, plus a `PreToolUse` hook
-  blocking edits and git-mutations there.
-- A bump-gate script: compile-check + the submodule's non-e2e tests + tripper's adapter/contract
-  tests, rolling the pointer back on failure.
-- A CI job running the gate on any submodule-pointer change.
-
-### Files this batch creates/edits
-- `.claude/settings.json`, `scripts/submodule_bump_gate.sh`,
-  `.github/workflows/submodule-gate.yml`.
-
-### Does NOT touch
-- Application logic.
-
-### Verification
-- The hook blocks a write under `vendor/agents/`; the gate script fails a deliberately broken bump.
 
 ---
 

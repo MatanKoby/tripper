@@ -17,11 +17,54 @@ Entry format:
 
 ## In progress
 
+<!-- One entry per actively claimed batch. -->
+
+## Completed
+
 ### Batch 9 — vendor/agents read-only guardrails + bump gate
 - Owner: claude
 - Started: 2026-07-12 19:30
+- Finished: 2026-07-13 12:31
+- Commit: 6a3db30
 
-## Completed
+**What shipped.** The read-only guardrails for vendored agents and the submodule-bump verification
+gate (`spec/agents.md`). `.claude/settings.json` (new, project-level, team-wide) adds a
+`permissions.deny` for `Edit`/`Write`/`NotebookEdit` under `vendor/agents/**` and a `PreToolUse` hook
+(matcher `Edit|Write|NotebookEdit|MultiEdit|Bash`) that runs `scripts/vendor_agents_guard.sh`. The
+guard reads the hook payload on stdin and emits a PreToolUse `deny` decision (never a hook error) when
+a call would edit a file inside `vendor/agents/**` or run a mutation there via Bash: shell redirects
+(`>`/`>>`), `sed -i`, destructive file utils (`rm rmdir mv cp tee dd truncate chmod chown touch ln`),
+or a git write-command operating with the submodule as its repo (`git -C vendor/agents/… <write>` or
+`cd vendor/agents/… && git <write>`). It deliberately allows pointer advances (`git submodule update
+--remote`, `git add` of the gitlink from the superproject) and all read-only inspection (cat/ls/grep/
+`git log`/`git diff`/`compileall`), so the legitimate bump flow is never blocked. Path matching handles
+absolute, relative, and `./`-prefixed forms; jq-missing fails open (the deny rule still applies).
+`scripts/submodule_bump_gate.sh` implements the gate: compile-check (`python -m compileall`) + the
+submodule's non-e2e tests (`pytest -m "not e2e"`, `cd` into the submodule) + tripper's adapter/contract
+tests (`pytest -k "adapter or contract"` from root). Default (local) mode rolls the pointer back
+(`restore --staged` + `git submodule update --init --checkout`) and commits nothing on failure, and
+commits the validated bump on its own on green (`meta: bump … to <short>`); `--check-only` (CI) validates
+only, no git mutation. Env knobs: `PYTHON`, `SUBMODULE_TEST_CMD`, `TRIPPER_TEST_ARGS`, `BUMP_COMMIT_PREFIX`.
+Absent/unchecked-out submodule → `--check-only` skips cleanly (exit 0). `.github/workflows/submodule-gate.yml`
+runs the gate `--check-only` on any push/PR touching `.gitmodules` or `vendor/agents/**` (also the gate
+script / workflow itself), with `submodules: recursive`, `setup-python@v5` (3.12), `pip install -e '.[dev]'`,
+and a best-effort editable install of the submodule.
+
+**Tests / verification.** The guard was pipe-tested against a 20+ case block/allow matrix (all green):
+blocks Edit/Write/NotebookEdit under `vendor/agents/**`, shell redirect/`sed -i`/`rm`/`mv`/`touch` into
+the path, and `git -C`/`cd &&` git-writes inside the submodule; allows the pointer bump, `git add` of the
+gitlink, `git log/diff`, `compileall`, `pip install -e`, and unrelated commands. **Live proof:** a `Write`
+to `vendor/agents/hotel-finder-agent/__guard_probe__.txt` in-session was denied ("File is in a directory
+that is denied by your permission settings"), with no file/dir created. The gate was exercised against
+throwaway fixtures: a syntax-error module → `GATE FAILED` (rc 1); a clean module with an `e2e`-marked test
+→ `GATE PASSED` (rc 0) with the e2e test deselected; absent submodule → clean skip; `--help` renders;
+unknown option → rc 2. Full repo unchanged and green: `pytest` 40 passed, `ruff check` clean, both scripts
+`bash -n` OK, workflow YAML parses. Prereqs: `jq` (guard) and, for the gate, a Python with `pytest`
+(the repo `.venv`, or the deps the CI workflow installs). Notes/follow-ups: the guard's Bash heuristics are
+conservative (e.g. `cp` out of the submodule is blocked); this batch adds a 4th file beyond the three the
+queue listed — `scripts/vendor_agents_guard.sh` — because embedding the hook logic inline in JSON would be
+unmaintainable. The real submodule + adapter arrive in Batch 10, at which point the gate's check 2/3 run
+against actual tests; the workflow triggers only once `.gitmodules`/`vendor/agents/**` exist.
 
 ### Batch 6 — Firestore security rules + config seed
 - Owner: claude
