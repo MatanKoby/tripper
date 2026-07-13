@@ -19,39 +19,13 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 ## Un-done batches
 
 > **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
-> trip, the hotel agent runs, and results render (live on Vercel). Critical path now: Batch 7
-> (frontend) → Batch 8 (deploy), which makes it live.
-> Batches 1, 2, 3, 4, 5, 6, 9, 10 are done. Batch 7 (frontend) is claimable now (deps 1, 3 complete);
-> Batch 8 (deploy) depends on 4, 5, 6, 7, 1 — claimable once 7 lands.
+> trip, the hotel agent runs, and results render (live on Vercel). Critical path now: Batch 8
+> (deploy), which makes it live.
+> Batches 1–7, 9, 10 are done. **Batch 8 (deploy) is the last M1 batch and is claimable now**
+> (deps 4, 5, 6, 7, 1 all complete).
 > When the user says "continue" after a context clear, ask which batch to claim.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
-
----
-
-## Batch 7 — Frontend wireframe (Vite + React)
-
-**Depends on:** Batch 3 (shapes); Batch 1 (Firebase web config).
-
-**Goal.** The client-side wireframe end to end (`spec/ui.md`).
-
-### Deliverables
-- Vite + React (TS) SPA; Google sign-in (`spec/access.md`).
-- Three-column layout: left tab scroll-nav (Flights / Accommodation / Activities), center a container
-  per section (only Accommodation populated; the others "coming soon"), right the trip-input form +
-  submit + job-status indicator.
-- On submit, writes the job doc and listens; renders `results.hotel.items` on `done`, the message on
-  `error`, and a "thinking / warming up" state while `pending`/`running`.
-
-### Files this batch creates/edits
-- `web/` (the whole Vite app).
-
-### Does NOT touch
-- Python backend, `firestore.rules`.
-
-### Verification
-- Against the emulator or the real project: sign in, submit, a seeded `done` doc renders; an `error`
-  doc shows its message.
 
 ---
 

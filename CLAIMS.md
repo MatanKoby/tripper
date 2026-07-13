@@ -19,11 +19,55 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 7 — Frontend wireframe (Vite + React)
 - Owner: claude
 - Started: 2026-07-13 16:35
+- Finished: 2026-07-13 17:38
+- Commit: e46891b
 
-## Completed
+**What shipped.** The client-side wireframe end to end (`spec/ui.md`), an unstyled Vite + React (TS)
+SPA in `web/` that talks only to Firebase. `web/src/firebase.ts` builds the app/Auth/Firestore
+singletons from `VITE_FIREBASE_*` (documented in the new `web/.env.example`) and, when
+`VITE_USE_EMULATOR=true`, connects Auth→`localhost:9099` and Firestore→`localhost:8080` (ports from
+the repo-root `firebase.json`) for local dev. `web/src/types.ts` is the TypeScript mirror of
+`tripper/contract.py` (`TripInput` + children for the job `input`; `TripSuggestions`/`HotelPayload`/
+`Pick` for the job `results`, plus a `TripDoc` for the lifecycle fields the UI reads).
+`web/src/buildTripInput.ts` turns the form state into a clean `TripInput`, enforcing the same
+client-side invariants the backend's strict Pydantic does (a place locator — M1 exposes `place.text`;
+`check_out > check_in`; `adults >= 1`; `picks_per_lens >= 1`) and omitting empty optionals so the
+backend applies its defaults. `useAuth` (Google `signInWithPopup`, `spec/access.md`) and `useJob`
+implement the flow (`spec/flows.md` steps 1–5): an auto-id ref under `users/{uid}/trips`, an
+`onSnapshot` listener started **before** the write, then `setDoc({ input, status: "pending",
+createdAt })`. `TripForm.tsx` is the right-column form (destination, desired area, dates, currency,
+guests, nationality, and a filters fieldset: price min/max, min star, min guest rating, refundable
+tri-state, amenity checkboxes, picks-per-lens). `Accommodation.tsx` renders the job states —
+warming-up while `pending`/`running`, `error.message` on `error`, and on `done` the hotel picks from
+`results.hotel.lenses` rendered as the three lens groups (empty groups omitted). `App.tsx` keeps the
+scaffold's three-column frame (left scroll-nav, center one container per section with only
+Accommodation populated, right the form) and adds the sign-in/out auth bar. Build wiring: `firebase`
+`^11` added; `build` now runs `tsc --noEmit && vite build`; a `typecheck` script added; `web/.gitignore`
+ignores `.env*`.
+
+**Tests / verification.** `npm run build` (tsc strict + vite build) is green; `npm run typecheck`
+clean. Two automated cross-checks beyond the browser flow (which needs a real Google popup and is the
+documented manual step): (1) the real TS builder (`buildTripInput`, bundled with esbuild) was run over
+representative form states and its emitted `TripInput`s validate against the authoritative Python
+`tripper.contract.TripInput` (both directions), and the client-side invariants reject the bad cases
+(no destination / reversed dates / zero adults). (2) An emulator round-trip against the real
+`firestore.rules` (throwaway script, not committed; ran under `firebase emulators:exec --only
+firestore`) drove the **exact** doc shape `useJob` writes: an allowlisted+verified user's
+`{ input, status:"pending", createdAt }` create is ALLOWED; a non-allowlisted user's identical create
+is DENIED (`accessOk()` fails closed); a backend (rules-disabled) transition to `done` with
+`results.hotel.lenses` is observed by the client listener (statuses seen `[pending, pending, done]`,
+2 picks across lenses); and an `error` doc's `error.message` reads back. Prereqs: Node/npm
+(`cd web && npm install`); the emulator round-trip needs the firebase CLI + Java (already used by the
+pytest/rules suites). Follow-ups: **queue/spec drift** — the Batch 7 queue text said render
+`results.hotel.items`, but the contract (`spec/schema.md`, `tripper/contract.py`) has no `items`
+field; the payload is `results.hotel.lenses` (a `LensName → Pick[]` map), which `spec/ui.md` says to
+flatten. Built to the contract (lenses), surfaced for the user, not freelanced into a spec edit.
+Live deploy of the SPA to Vercel + the Firebase web config as Vercel env vars is Batch 8 (+ Batch 1).
 
 ### Batch 10 — Hotel adapter + vendor submodule
 - Owner: claude

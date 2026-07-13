@@ -10,6 +10,21 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 7 — Frontend wireframe (Vite + React)
+Shipped the client-side wireframe end to end in `web/` (`spec/ui.md`), an unstyled Vite + React (TS)
+SPA that talks only to Firebase. `firebase.ts` inits Auth/Firestore from `VITE_FIREBASE_*` (with a
+`VITE_USE_EMULATOR` local-dev path to the emulators); `types.ts` mirrors `tripper/contract.py`;
+`buildTripInput.ts` maps the form to a clean `TripInput` enforcing the contract's client-side
+invariants; `useAuth` (Google sign-in) + `useJob` do the flow (`spec/flows.md`): auto-id ref under
+`users/{uid}/trips`, listen, then write `{ input, status:"pending" }`. `TripForm`/`Accommodation`/`App`
+are the three-column frame — only Accommodation populated, rendering `results.hotel.lenses` on `done`
+(the queue's `results.hotel.items` was drift; the contract has no `items`), the message on `error`, and
+a warming-up state while `pending`/`running`. Verified: `npm run build`/`typecheck` green; the TS
+builder's `TripInput`s cross-validated against Python `tripper.contract`; an emulator round-trip against
+the real `firestore.rules` confirmed the exact `useJob` write shape is allowed for an allowlisted user,
+denied otherwise, and the `done`/`error` transitions propagate to the listener. Key commit `e46891b`.
+Live Vercel deploy + the web config as Vercel env vars is Batch 8 (+ Batch 1).
+
 ## Batch 10 — Hotel adapter + vendor submodule
 Wired the real hotel agent as the Accommodation agent (`spec/schema.md`, `spec/agents.md`). Added
 `vendor/agents/hotel-finder-agent` as an HTTPS git submodule (tracking `dev`, pinned `c739d64`; package
