@@ -9,7 +9,7 @@ body {
 
 .layout {
   display: grid;
-  grid-template-columns: 180px 1fr 280px;
+  grid-template-columns: 180px 1fr 340px;
   min-height: 100vh;
 }
 
@@ -43,4 +43,119 @@ body {
 
 .placeholder {
   color: #888;
+}
+
+.hint {
+  color: #888;
+  font-size: 0.85em;
+}
+
+/* --- auth bar --- */
+.auth-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: space-between;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 12px;
+}
+
+/* --- trip form (wireframe: stacked labels, no visual design) --- */
+.trip-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trip-form label {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.85em;
+  gap: 2px;
+}
+
+.trip-form label.checkbox {
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+}
+
+.trip-form input,
+.trip-form select {
+  padding: 4px;
+}
+
+.trip-form .row {
+  display: flex;
+  gap: 8px;
+}
+
+.trip-form .row > label {
+  flex: 1;
+}
+
+.trip-form fieldset {
+  border: 1px solid #ddd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.amenity-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 8px;
+}
+
+.form-error {
+  color: #b00020;
+  font-size: 0.85em;
+}
+
+/* --- job status + results --- */
+.thinking {
+  color: #555;
+  font-style: italic;
+}
+
+.error {
+  color: #b00020;
+}
+
+.warning,
+.agent-status {
+  color: #8a6d00;
+  font-size: 0.9em;
+}
+
+.lens-group h3 {
+  margin-bottom: 4px;
+}
+
+.picks {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.pick {
+  padding: 8px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.pick-meta {
+  color: #555;
+  font-size: 0.9em;
+}
+
+.rationale {
+  margin: 4px 0 0;
+  font-size: 0.9em;
+}
+
+.amenity-list {
+  margin: 4px 0 0;
+  color: #888;
+  font-size: 0.8em;
 }
