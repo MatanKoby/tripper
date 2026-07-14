@@ -69,6 +69,22 @@ jobs:
           workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
           service_account: ${{ secrets.DEPLOY_SA }}
 
+      # TEMPORARY diagnostic: confirm which identity the deploy actually runs as and which
+      # permissions its token holds, to pin down the firebaserules :test 403. Remove once green.
+      - name: Set up gcloud (diagnostics)
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Diagnose identity and permissions
+        run: |
+          project="${{ vars.GCP_PROJECT || secrets.GCP_PROJECT }}"
+          echo "== Active account (should be the deploy service account) =="
+          gcloud auth list --format='value(account)' || true
+          echo "== Of the requested permissions, this token HOLDS: =="
+          gcloud projects test-iam-permissions "$project" \
+            --permissions=firebaserules.rulesets.test,firebase.projects.get,serviceusage.services.use \
+            --format='value(permissions)' || echo "(test-iam-permissions call itself failed)"
+          echo "== end diagnostics =="
+
       - name: Write functions env file from secrets
         # spec/architecture.md: GitHub Secrets are the source of truth for backend env vars, applied
         # on every deploy; no GCP Secret Manager in M1. The Firebase CLI loads `.env` at deploy time
