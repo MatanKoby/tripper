@@ -1,0 +1,15 @@
+# Cloud Functions (Gen2) Python runtime dependencies for the tripper backend.
+#
+# This is what the Google Cloud buildpack installs into the deployed function; it mirrors
+# pyproject.toml's core dependencies + the [functions] extra, plus the vendored hotel agent.
+# Keep it in sync with pyproject.toml when those change.
+firebase-admin>=6.5
+firebase-functions>=0.4
+pydantic>=2.7
+pydantic-settings>=2.3
+
+# Vendored hotel-finder agent (git submodule under vendor/, checked out with
+# `submodules: recursive` in CI). Installed from its local path so `hotel_finder` is importable
+# at runtime (the adapter imports it function-locally). Its own deps (openai, httpx) resolve
+# transitively from its pyproject.
+./vendor/agents/hotel-finder-agent

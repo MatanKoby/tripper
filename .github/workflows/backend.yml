@@ -1,0 +1,111 @@
+name: Deploy backend
+
+# Deploys the tripper backend to Google Cloud Functions (Gen2, us-central1) and pushes the
+# Firestore security rules + indexes. Uses the Firebase CLI, which is the native deploy path for
+# the firebase-functions Python SDK: from the decorators in main.py it provisions the Firestore
+# (Eventarc) onCreate trigger for `orchestrate` AND creates/updates the Cloud Scheduler job for
+# `sweep_stuck_jobs` automatically (spec/architecture.md, spec/flows.md). See DEPLOY.md for the
+# required secrets/variables, GCP APIs, and service-account roles.
+
+on:
+  push:
+    branches: [dev]
+    # Skip redeploys for changes that cannot affect the backend runtime.
+    paths-ignore:
+      - "web/**"
+      - "tests/**"
+      - "specflow/**"
+      - "spec/**"
+      - "**.md"
+      - "CLAIMS.md"
+      - "BUILD_QUEUE.md"
+      - ".github/workflows/submodule-gate.yml"
+  workflow_dispatch: {}
+
+# Never run two deploys at once, and never cancel one in flight (a half-applied deploy is worse
+# than a queued one).
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write # required for Workload Identity Federation (OIDC token exchange)
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with vendored agent submodule)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools@14
+
+      - name: Create functions venv and install requirements
+        # The Firebase CLI runs Python "discovery" (imports main.py to read the function manifest)
+        # inside a venv named `venv` at the functions source root. Pre-create it so discovery is
+        # deterministic; the deployed runtime installs requirements.txt itself via the buildpack.
+        run: |
+          python -m venv venv
+          ./venv/bin/python -m pip install --upgrade pip
+          ./venv/bin/python -m pip install -r requirements.txt
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
+          service_account: ${{ secrets.DEPLOY_SA }}
+
+      - name: Write functions env file from secrets
+        # spec/architecture.md: GitHub Secrets are the source of truth for backend env vars, applied
+        # on every deploy; no GCP Secret Manager in M1. The Firebase CLI loads `.env` at deploy time
+        # and sets each entry as a function env var. Only non-empty values are written, so any absent
+        # optional secret falls back to the backend's keyless defaults (mock provider + heuristic
+        # scorer) instead of injecting an empty string.
+        env:
+          ENABLED_PROVIDERS: ${{ vars.ENABLED_PROVIDERS }}
+          SCORER: ${{ vars.SCORER }}
+          LLM_BACKEND: ${{ vars.LLM_BACKEND }}
+          NEBIUS_ENDPOINT_MODEL: ${{ vars.NEBIUS_ENDPOINT_MODEL }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          NEBIUS_ENDPOINT_URL: ${{ secrets.NEBIUS_ENDPOINT_URL }}
+          NEBIUS_ENDPOINT_TOKEN: ${{ secrets.NEBIUS_ENDPOINT_TOKEN }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LITEAPI_API_KEY: ${{ secrets.LITEAPI_API_KEY }}
+        run: |
+          : > .env
+          for key in ENABLED_PROVIDERS SCORER LLM_BACKEND NEBIUS_ENDPOINT_MODEL \
+                     LLM_BASE_URL NEBIUS_ENDPOINT_URL NEBIUS_ENDPOINT_TOKEN \
+                     LLM_API_KEY LITEAPI_API_KEY; do
+            value="${!key}"
+            if [ -n "$value" ]; then
+              printf '%s=%s\n' "$key" "$value" >> .env
+            fi
+          done
+          echo "Wrote $(grep -c . .env 2>/dev/null || echo 0) backend env var(s) to .env."
+
+      - name: Deploy functions, Firestore rules and indexes
+        run: |
+          project="${{ vars.GCP_PROJECT || secrets.GCP_PROJECT }}"
+          if [ -z "$project" ]; then
+            echo "::error::Set repository variable GCP_PROJECT (or secret GCP_PROJECT) to your GCP project id." >&2
+            exit 1
+          fi
+          firebase deploy \
+            --only functions,firestore:rules,firestore:indexes \
+            --project "$project" \
+            --non-interactive \
+            --force
