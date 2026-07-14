@@ -63,11 +63,14 @@ jobs:
           ./venv/bin/python -m pip install --upgrade pip
           ./venv/bin/python -m pip install -r requirements.txt
 
-      - name: Authenticate to Google Cloud (Workload Identity Federation)
+      - name: Authenticate to Google Cloud (service account key)
+        # Switched from Workload Identity Federation to a first-party SA key: the WIF
+        # external_account credential is rejected by firebaserules.googleapis.com:test
+        # (IAM_PERMISSION_DENIED) even though the same SA is authorized, while a first-party
+        # SA token works. See DEPLOY.md. Consider revisiting WIF once that is resolved.
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ secrets.WIF_PROVIDER }}
-          service_account: ${{ secrets.DEPLOY_SA }}
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       # TEMPORARY diagnostic: confirm which identity the deploy actually runs as and which
       # permissions its token holds, to pin down the firebaserules :test 403. Remove once green.
