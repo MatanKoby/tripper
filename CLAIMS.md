@@ -19,11 +19,55 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 8 — CI/CD (GitHub Actions)
 - Owner: claude
 - Started: 2026-07-13 18:00
+- Finished: 2026-07-14 06:09
+- Commit: e4936d2
 
-## Completed
+**What shipped.** Automated backend deploy to Google Cloud Functions Gen2 (`us-central1`) via GitHub
+Actions, plus the deploy runbook (`spec/architecture.md`, `spec/flows.md`). Decision: the backend
+uses the **Firebase CLI** (`firebase deploy`), not raw `gcloud` — it is the native path for the
+`firebase-functions` Python SDK and provisions, from the decorators in `main.py`, the Firestore
+(Eventarc) `onCreate` trigger for `orchestrate` **and** the Cloud Scheduler job (`every 5 minutes`)
+for `sweep_stuck_jobs`, so no hand-wired trigger/scheduler steps. GCP auth is **Workload Identity
+Federation** (no long-lived key), per the user's Batch 1 provisioning.
+`.github/workflows/backend.yml` runs on push to `dev` (backend-relevant paths only; frontend/test/
+spec/doc changes are `paths-ignore`d) and on `workflow_dispatch`, with `concurrency` serializing
+deploys (`cancel-in-progress: false`) and `permissions: id-token: write` for OIDC. Steps: checkout
+`submodules: recursive`; set up Python 3.12 + Node 20; install `firebase-tools@14`; create the `venv`
+the CLI's Python discovery needs and `pip install -r requirements.txt` into it; `google-github-actions/auth@v2`
+(WIF); write `.env` from GitHub Secrets/Variables (only non-empty keys, so absent optional secrets
+fall back to the keyless `mock`+`heuristic` defaults; GitHub is the env source of truth,
+`spec/architecture.md`); then `firebase deploy --only functions,firestore:rules,firestore:indexes
+--project <GCP_PROJECT> --non-interactive --force`. Supporting files: `firebase.json` gains a
+`python312` functions codebase (`source: "."`) with a deploy-bundle `ignore` list (`firestore` +
+`emulators` unchanged); new `requirements.txt` mirrors `pyproject.toml`'s core + `functions` extra and
+installs the vendored hotel agent from its local path (`./vendor/agents/hotel-finder-agent`) so
+`hotel_finder` is importable at runtime; new `DEPLOY.md` documents the required secrets
+(`WIF_PROVIDER`, `DEPLOY_SA`, the Nebius/LLM/LiteAPI keys) and variables (`GCP_PROJECT`,
+`ENABLED_PROVIDERS`, `SCORER`, …), the GCP APIs + SA roles, and the frontend path.
+
+**Frontend.** No `frontend.yml`: the user confirmed the `web/` SPA already deploys via **Vercel's Git
+integration** from `dev` (the spec-sanctioned "or Vercel git integration" alternative). Its settings
+(root dir `web/`, `npm run build`→`dist`, `VITE_FIREBASE_*` + `VITE_USE_EMULATOR=false`) are recorded
+in `DEPLOY.md`.
+
+**Tests / verification.** The live deploy itself runs on the user's GCP/Vercel infra and is not
+agent-runnable (no creds; outward-facing), so it is verified by the first push to `dev`. Static +
+local checks all green: `backend.yml` and `submodule-gate.yml` parse as YAML; `firebase.json` is valid
+JSON and the Firebase CLI (v14.26, local) accepts the new functions codebase (it fails only at project
+auth, not config parsing); a **fresh** venv `pip install -r requirements.txt` succeeds — proving the
+local-path submodule install works — after which `import hotel_finder` and `import main` both succeed
+with `orchestrate` + `sweep_stuck_jobs` registered (exactly what the CLI's discovery imports). No
+Python source changed. **Prereqs / follow-ups for the user:** set repo secrets `WIF_PROVIDER` +
+`DEPLOY_SA` and variable `GCP_PROJECT` (DEPLOY.md), ensure the WIF provider is bound to the repo and
+the deploy SA holds the listed roles, and enable the listed GCP APIs; a failed first run is almost
+certainly one of these. **Spec drift:** `spec/architecture.md` still says `gcloud functions deploy …
+--set-env-vars`; the batch uses the Firebase CLI instead (surfaced in `DEPLOY.md` + here, left as a
+`spec:` decision for the user, not freelanced). This was the last M1 batch.
 
 ### Batch 7 — Frontend wireframe (Vite + React)
 - Owner: claude

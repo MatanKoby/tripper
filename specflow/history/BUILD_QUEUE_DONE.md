@@ -10,6 +10,26 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 8 — CI/CD (GitHub Actions)
+Shipped automated backend deploy to Cloud Functions Gen2 (`us-central1`) via GitHub Actions
+(`spec/architecture.md`, `spec/flows.md`). Chose the **Firebase CLI** over raw `gcloud` (the native
+path for the `firebase-functions` Python SDK): `firebase deploy --only
+functions,firestore:rules,firestore:indexes` provisions, from `main.py`'s decorators, the Firestore
+Eventarc `onCreate` trigger and the sweeper's Cloud Scheduler job (`every 5 minutes`) automatically.
+`.github/workflows/backend.yml` runs on push to `dev` (backend paths) / dispatch, auths with
+**Workload Identity Federation**, installs `firebase-tools`, builds the discovery `venv`, writes
+`.env` from GitHub Secrets/Variables (non-empty only → keyless `mock`+`heuristic` defaults when
+unset), and deploys with `submodules: recursive`. Supporting files: `firebase.json` gains a
+`python312` functions codebase (`source: "."` + ignore list); new `requirements.txt` (pyproject core +
+functions extra + the vendored hotel agent via local path); new `DEPLOY.md` runbook (secrets/vars, GCP
+APIs + SA roles, Vercel settings). Frontend: no workflow — the `web/` SPA already deploys via Vercel's
+Git integration from `dev` (spec-sanctioned). Verified statically (YAML/JSON parse, CLI accepts the
+codebase, fresh `pip install -r requirements.txt` + `import main` green with both functions
+registered); the live deploy runs on the user's infra on first push. Key commit `e4936d2`. Follow-ups:
+user must set `WIF_PROVIDER`/`DEPLOY_SA`/`GCP_PROJECT` + IAM/APIs (DEPLOY.md); `spec/architecture.md`'s
+`gcloud … --set-env-vars` wording is drift vs the Firebase CLI used, left as a `spec:` decision. Last
+M1 batch.
+
 ## Batch 7 — Frontend wireframe (Vite + React)
 Shipped the client-side wireframe end to end in `web/` (`spec/ui.md`), an unstyled Vite + React (TS)
 SPA that talks only to Firebase. `firebase.ts` inits Auth/Firestore from `VITE_FIREBASE_*` (with a

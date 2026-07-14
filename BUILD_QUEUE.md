@@ -18,38 +18,14 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 ## Un-done batches
 
-> **Pick-order pointer for "continue".** Milestone goal: a vertical slice where the UI submits a
-> trip, the hotel agent runs, and results render (live on Vercel). Critical path now: Batch 8
-> (deploy), which makes it live.
-> Batches 1–7, 9, 10 are done. **Batch 8 (deploy) is the last M1 batch and is claimable now**
-> (deps 4, 5, 6, 7, 1 all complete).
-> When the user says "continue" after a context clear, ask which batch to claim.
+> **Pick-order pointer for "continue".** All M1 batches (1–10) are complete: the vertical slice —
+> UI submits a trip, the hotel agent runs, results render, and both backend (Cloud Functions) and
+> frontend (Vercel) deploy from `dev`. **The queue is empty.** When the user says "continue", there is
+> no M1 batch to claim; confirm the next milestone's batches before claiming anything.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
 
-## Batch 8 — CI/CD (GitHub Actions)
-
-**Depends on:** Batches 4, 5, 6, 7, and Batch 1.
-
-**Goal.** Automated deploys for backend and frontend.
-
-### Deliverables
-- Backend workflow deploys the orchestrator + sweeper to Cloud Functions Gen2 (`us-central1`) with
-  `submodules: recursive` and `--set-env-vars` from GitHub Secrets; deploys `firestore.rules` +
-  indexes; creates/updates the Cloud Scheduler job for the sweeper.
-- Frontend deploy to Vercel.
-- GCP deploy auth finalized here (Workload Identity Federation recommended; SA key acceptable).
-
-### Files this batch creates/edits
-- `.github/workflows/backend.yml`, `.github/workflows/frontend.yml` (or Vercel git integration),
-  any deploy scripts.
-
-### Does NOT touch
-- Application logic.
-
-### Verification
-- A push to `dev` deploys; functions live in `us-central1`; rules active; the scheduler job exists.
-
----
+_No un-done batches. See [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUILD_QUEUE_DONE.md)
+for the shipped history._
