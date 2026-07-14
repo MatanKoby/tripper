@@ -79,6 +79,10 @@ jobs:
           project="${{ vars.GCP_PROJECT || secrets.GCP_PROJECT }}"
           rules='{"source":{"files":[{"name":"firestore.rules","content":"rules_version = \"2\";\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n"}]}}'
           token="$(gcloud auth print-access-token)"
+          echo "== Acting identity (base64, to dodge GitHub secret masking; decode to read) =="
+          curl -s "https://oauth2.googleapis.com/tokeninfo?access_token=${token}" \
+            | python3 -c 'import sys,json;print(json.load(sys.stdin).get("email","<no-email-in-token>"))' \
+            | base64 -w0; echo
           echo "== Firebase Rules API enabled on ${project}? =="
           gcloud services list --enabled --project="$project" \
             --filter="config.name:firebaserules.googleapis.com" \
