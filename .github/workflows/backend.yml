@@ -74,15 +74,26 @@ jobs:
       - name: Set up gcloud (diagnostics)
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Diagnose identity and permissions
+      - name: Diagnose firebaserules access
         run: |
           project="${{ vars.GCP_PROJECT || secrets.GCP_PROJECT }}"
-          echo "== Active account (should be the deploy service account) =="
-          gcloud auth list --format='value(account)' || true
-          echo "== Of the requested permissions, this token HOLDS: =="
-          gcloud projects test-iam-permissions "$project" \
-            --permissions=firebaserules.rulesets.test,firebase.projects.get,serviceusage.services.use \
-            --format='value(permissions)' || echo "(test-iam-permissions call itself failed)"
+          rules='{"source":{"files":[{"name":"firestore.rules","content":"rules_version = \"2\";\nservice cloud.firestore {\n  match /databases/{database}/documents {\n    match /{document=**} {\n      allow read, write: if false;\n    }\n  }\n}\n"}]}}'
+          token="$(gcloud auth print-access-token)"
+          echo "== Firebase Rules API enabled on ${project}? =="
+          gcloud services list --enabled --project="$project" \
+            --filter="config.name:firebaserules.googleapis.com" \
+            --format='value(config.name)' || echo "(could not list services)"
+          echo "== firebaserules :test WITH X-Goog-User-Project header (quota project set) =="
+          curl -s -o /dev/null -w "HTTP %{http_code}\n" -X POST \
+            -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" \
+            -H "X-Goog-User-Project: ${project}" -d "$rules" \
+            "https://firebaserules.googleapis.com/v1/projects/${project}:test"
+          echo "== firebaserules :test WITHOUT that header (what firebase currently does), full body =="
+          curl -s -X POST \
+            -H "Authorization: Bearer ${token}" -H "Content-Type: application/json" \
+            -d "$rules" \
+            "https://firebaserules.googleapis.com/v1/projects/${project}:test"
+          echo
           echo "== end diagnostics =="
 
       - name: Write functions env file from secrets
