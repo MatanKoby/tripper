@@ -22,6 +22,10 @@ A single scrolling page with three domain sections, in a three-column frame:
 
 - The user must be signed in (`access.md`). On submit, the FE writes the job doc and listens on it
   (`flows.md`).
+- A **Quick fill** row above the form offers premade trips (e.g. Barcelona next weekend, 2 adults)
+  that one-click populate every field (`schema.md` under Trip input); the fields stay editable
+  before submit. Preset dates are relative to today, so a preset is always a future-valid query. A
+  dev/demo convenience for exercising the flow, not a product feature.
 - While `pending` / `running`, the Accommodation container shows the "thinking / warming up" state
   (the first request can take a few minutes on a cold start: `architecture.md`).
 - On `done`, it renders `results.hotel.lenses` (the three lens groups; flatten to a single list if
