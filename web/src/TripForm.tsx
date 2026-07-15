@@ -7,6 +7,7 @@ import {
   type FormState,
   type RefundablePref,
 } from "./buildTripInput";
+import { PRESETS } from "./presets";
 import { AMENITIES, type Amenity, type TripInput } from "./types";
 
 interface Props {
@@ -45,6 +46,25 @@ export default function TripForm({ onSubmit, submitting, disabled }: Props) {
 
   return (
     <form className="trip-form" onSubmit={handleSubmit}>
+      <div className="presets">
+        <span className="hint">Quick fill:</span>
+        <div className="preset-buttons">
+          {PRESETS.map((p) => (
+            <button
+              key={p.id}
+              type="button"
+              className="preset"
+              onClick={() => {
+                setForm(p.build());
+                setValidationError(null);
+              }}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       <label>
         Destination
         <input
