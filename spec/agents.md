@@ -7,6 +7,40 @@
 - Tripper reaches each agent only through its adapter (`architecture.md` under Agent contract +
   adapters). Agents expose a clean API; tripper does not wrap any CLI.
 
+## Integration contract
+
+For an agent's repo to be vendored here it must meet the following. The reference implementation is
+`hotel-finder-agent`; new agents mirror it. Tripper never patches the submodule (see Read-only
+rule), so all of this lives in the agent's own repo.
+
+1. **Installable package.** A `pyproject.toml` (runtime deps declared) with a `src/<package>/`
+   layout; `pip install -e .` from a clean venv succeeds and makes it importable. Tripper installs
+   the submodule this way into the Cloud Function at deploy (`architecture.md`). A flat pile of
+   scripts is not installable.
+2. **One synchronous, machine-facing entry point.** A single callable, dict/JSON in and dict/JSON
+   out; no HTTP, CLI, or subprocess on the call path (an async core provides a sync wrapper). Stable
+   import path + name — tripper pins a ref and imports exactly it. Reference: `hotel_finder.search_sync`.
+3. **Stable request/response schema.** Input fields and output structure documented and versioned;
+   Pydantic v2 models exported from the package preferred (hotel: `HotelSearchRequest` /
+   `HotelSearchResponse`), a JSON schema is the minimum. The adapter maps tripper's contract
+   (`schema.md`) to and from this.
+4. **Config by injection.** LLM endpoint / keys / providers / tokens read from env vars or an
+   injectable settings object; no hardcoded secrets, no reading a private `.env`. Tripper holds the
+   credentials and passes them (`architecture.md` under Deployment & secrets). Reference:
+   `hotel_finder.config.Settings`.
+5. **Keyless / offline default.** With no secrets set, the entry point still imports and returns a
+   valid (mock) response, for CI and local runs. Hotel: `mock` provider + `heuristic` scorer.
+6. **Import-safe.** `import <package>` triggers no key checks, network calls, or servers; those
+   happen when the entry point runs.
+7. **Deps in package metadata**, not only a loose `requirements.txt`, so the editable install pulls
+   them.
+8. **Offline tests**, with any live test marked so `pytest -m "not e2e"` excludes it — these are
+   what the Submodule-bump gate runs.
+
+**Done** = from a clean env with no secrets set, `pip install -e .` then
+`python -c "from <package> import <entry>; print(<entry>({<minimal input>}))"` imports and returns a
+structured result.
+
 ## Read-only rule
 
 `vendor/agents/**` is owned upstream and **never edited by tripper**. Interface gaps are fixed
