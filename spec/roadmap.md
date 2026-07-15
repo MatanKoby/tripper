@@ -24,6 +24,12 @@
 - **Admin UI for the access allowlist / mode** (M1 edits `config/access` in the Firebase console).
 - **Saved / re-openable trips**: a per-user trip list and profile beyond the single job doc.
 - **Admin or cross-user views** via `collectionGroup("trips")` queries.
+- **Meaningful submit / job errors.** The FE currently surfaces the raw SDK message (e.g. a
+  Firestore rules denial shows "Missing or insufficient permissions"). Replace with short,
+  actionable messages that say what is wrong and how to fix it. When the remedy is developer-facing
+  (config / rules / deploy), degrade gracefully: still signal that there is an error, but hide the
+  technical detail behind a short error code instead of dumping the raw message. Covers the
+  `submitError` and job-`error` paths (`ui.md` under Behavior).
 - **Styled UI** beyond wireframes.
 - Read-only enforcement for `vendor/agents/**` via a `.claude/settings.json` deny rule plus a
   `PreToolUse` hook (policy today: see `agents.md`).
