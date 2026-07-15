@@ -17,7 +17,10 @@
 - **Warm-on-submit ping** (fire a warm-up the instant the job doc is created) if the first-request
   cold-start wait becomes a UX problem. We deliberately avoid idle keep-warm.
 - **GCP Secret Manager + rotation** for the Nebius key (M1 uses GitHub Secrets).
-- **Workload Identity Federation** for CI-to-GCP auth if we start on a service-account key.
+- **Root-cause the Firestore-deploy 403 from CI, then re-automate it.** Publishing rules/indexes
+  403s on the Firebase Rules `:test` compile step only from the GitHub-hosted runner (the same
+  deploy identity passes from a workstation), so M1 deploys Firestore config by hand
+  (`architecture.md`, `DEPLOY.md`); revisit to move it back into the CI deploy.
 - **Admin UI for the access allowlist / mode** (M1 edits `config/access` in the Firebase console).
 - **Saved / re-openable trips**: a per-user trip list and profile beyond the single job doc.
 - **Admin or cross-user views** via `collectionGroup("trips")` queries.

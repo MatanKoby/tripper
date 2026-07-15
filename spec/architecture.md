@@ -41,9 +41,16 @@ the frontend writes a job to Firestore and listens for the result while the back
 ## Deployment & secrets
 
 - **Nebius secret source of truth: GitHub Secrets.** The deploy workflow applies them to the
-  agent-running function(s) on every deploy (`gcloud functions deploy ... --set-env-vars ...`). No
-  GCP Secret Manager in M1 (revisit for rotation: `roadmap.md`). CI is authoritative for env vars;
-  do not also set them by hand.
+  agent-running function(s) on every deploy (written to a `.env` the Firebase CLI loads at
+  `firebase deploy`). No GCP Secret Manager in M1 (revisit for rotation: `roadmap.md`). CI is
+  authoritative for env vars; do not also set them by hand.
+- **Deploy split: functions in CI, Firestore config from a workstation.** GitHub Actions deploys the
+  **functions** with the Firebase CLI (`firebase deploy --only functions`), the native path for the
+  `firebase-functions` SDK, which also wires the Eventarc trigger and the Cloud Scheduler job.
+  **Firestore rules and indexes are deployed from a workstation, not from CI**: publishing them
+  compiles the rules through the Firebase Rules API, which returns 403 only when the request
+  originates from the GitHub-hosted runner (environment-specific, not a missing role; root cause
+  unresolved, `roadmap.md`). Runbook and the exact commands: `DEPLOY.md`.
 - **Region**: all GCP resources (Cloud Functions, Firestore, Cloud Scheduler) in **`us-central1`**,
   chosen for the broadest free-tier coverage and universal service support. Firestore uses the
   **regional** `us-central1` location (cheaper than multi-region), which is **permanent**.
@@ -52,8 +59,9 @@ the frontend writes a job to Firestore and listens for the result while the back
 - **Access control replaces the old app-secret entirely.** The frontend is gated by Firebase Auth,
   the access allowlist, and Firestore security rules; the backend runs with the Firebase Admin SDK.
   There is no public endpoint to protect (`access.md`).
-- **GCP deploy auth** from Actions (a service-account key vs Workload Identity Federation) is
-  decided in the CI batch. Infra provisioning steps are a `[MANUAL]` checklist you execute.
+- **GCP deploy auth** from Actions is **Workload Identity Federation** (no long-lived key); the
+  deploy service account and the roles it needs are in `DEPLOY.md`. Infra provisioning steps are a
+  `[MANUAL]` checklist you execute.
 
 ## Cold starts & long runs
 
