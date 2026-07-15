@@ -104,15 +104,15 @@ jobs:
           done
           echo "Wrote $(grep -c . .env 2>/dev/null || echo 0) backend env var(s) to .env."
 
-      - name: Deploy functions and Firestore indexes
-        # firestore:rules is intentionally NOT deployed from CI. Publishing rules calls
-        # firebaserules.googleapis.com :test to compile them, and that returns 403
-        # (firebaserules.rulesets.test) for the deploy SA *only when the request originates from the
-        # GitHub runner*; the identical impersonated identity passes from a workstation. The IAM
-        # grant is correct (roles/firebaserules.admin) and both WIF and SA-key auth fail the same
-        # way, so it is environment-specific, not a credential or permission gap. Until it is root-
-        # caused, deploy rules from a workstation: `firebase deploy --only firestore:rules`.
-        # See DEPLOY.md.
+      - name: Deploy functions
+        # Firestore (rules AND indexes) is intentionally NOT deployed from CI. Deploying ANY
+        # firestore target makes the CLI compile firestore.rules via firebaserules :test, and that
+        # returns 403 (firebaserules.rulesets.test) for the deploy SA *only when the request
+        # originates from the GitHub runner*; the identical impersonated identity passes from a
+        # workstation. The IAM grant is correct (roles/firebaserules.admin) and both WIF and SA-key
+        # auth fail the same way, so it is environment-specific, not a credential or permission gap.
+        # Until it is root-caused, deploy firestore from a workstation:
+        # `firebase deploy --only firestore`. See DEPLOY.md.
         run: |
           project="${{ vars.GCP_PROJECT || secrets.GCP_PROJECT }}"
           if [ -z "$project" ]; then
@@ -120,7 +120,7 @@ jobs:
             exit 1
           fi
           firebase deploy \
-            --only functions,firestore:indexes \
+            --only functions \
             --project "$project" \
             --non-interactive \
             --force
