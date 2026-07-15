@@ -14,7 +14,7 @@ It authenticates to Google Cloud with **Workload Identity Federation** (no long-
 runs the **Firebase CLI**:
 
 ```
-firebase deploy --only functions,firestore:rules,firestore:indexes
+firebase deploy --only functions
 ```
 
 The Firebase CLI is the native deploy path for the `firebase-functions` Python SDK. From the
@@ -22,12 +22,27 @@ decorators in `main.py` it:
 
 - deploys `orchestrate` and wires its Firestore (Eventarc) `onCreate` trigger on
   `users/{userId}/trips/{tripId}`;
-- deploys `sweep_stuck_jobs` and **creates/updates the Cloud Scheduler job** (`every 5 minutes`) —
-  no manual `gcloud scheduler` step;
-- deploys `firestore.rules` and the composite index in `firestore.indexes.json`.
+- deploys `sweep_stuck_jobs` and **creates/updates the Cloud Scheduler job** (`every 5 minutes`),
+  no manual `gcloud scheduler` step.
+
+**Firestore rules and indexes are deployed from a workstation, not from CI** (see the next section).
 
 The `vendor/agents/hotel-finder-agent` submodule is checked out (`submodules: recursive`) and
 installed from `requirements.txt` (a local-path entry), so `hotel_finder` is importable at runtime.
+
+### Firestore rules + indexes (deploy from a workstation)
+
+CI deploys **functions only**. Deploying any `firestore` target makes the CLI compile the rules via
+`firebaserules.googleapis.com :test`, and that call returns `403 firebaserules.rulesets.test` **only
+when the request originates from the GitHub-hosted runner**. The identical impersonated `DEPLOY_SA`
+identity passes from a workstation, and both WIF and a static SA key fail the same way from CI, so it
+is environment-specific, not a missing role (`DEPLOY_SA` does hold `roles/firebaserules.admin`). Root
+cause is unresolved; until it is, deploy Firestore config from a workstation authenticated as an
+owner, and re-run whenever `firestore.rules` or `firestore.indexes.json` change (rarely):
+
+```
+firebase deploy --only firestore --project <GCP_PROJECT>
+```
 
 ### Required GitHub configuration
 
@@ -62,12 +77,22 @@ the source of truth for backend env vars; no GCP Secret Manager in M1).
 Enable these APIs on the project: Cloud Functions, Cloud Run, Cloud Build, Artifact Registry,
 Eventarc, Cloud Scheduler, Firestore, and IAM Service Account Credentials.
 
-The deploy service account (`DEPLOY_SA`) needs roles sufficient to deploy Gen2 functions and
-Firestore config, e.g.: `roles/cloudfunctions.developer`, `roles/run.admin`,
-`roles/cloudbuild.builds.editor`, `roles/artifactregistry.writer`, `roles/eventarc.admin`,
-`roles/cloudscheduler.admin`, `roles/datastore.owner` (rules + indexes), and
-`roles/iam.serviceAccountUser` on the function's runtime service account. The WIF provider must be
-bound to this repository so Actions can impersonate `DEPLOY_SA`.
+The deploy service account (`DEPLOY_SA`) needs roles sufficient to deploy Gen2 functions:
+`roles/cloudfunctions.developer`, `roles/run.admin`, `roles/cloudbuild.builds.editor`,
+`roles/artifactregistry.writer`, `roles/eventarc.admin`, `roles/cloudscheduler.admin`,
+`roles/serviceusage.serviceUsageConsumer`, and `roles/iam.serviceAccountUser` on the function's
+runtime service account. For the workstation Firestore deploy it also holds `roles/datastore.owner`
+(indexes) and `roles/firebaserules.admin` (rules). The WIF provider must be bound to this repository
+so Actions can impersonate `DEPLOY_SA`.
+
+First-time Gen2 + Eventarc deploys additionally need these **service-agent** bindings, which the
+Firebase CLI tries to add automatically but cannot when `DEPLOY_SA` lacks project IAM-admin. Grant
+them once as an owner (the CLI prints the exact commands with the concrete SA emails on failure):
+
+- pubsub service agent → `roles/iam.serviceAccountTokenCreator`
+- compute default service account → `roles/run.invoker` and `roles/eventarc.eventReceiver`
+- eventarc service agent → `roles/eventarc.serviceAgent` (normally auto-granted; add explicitly only
+  if the first `orchestrate` deploy 403s on the Eventarc trigger)
 
 ## Frontend — Vercel (Git integration)
 
