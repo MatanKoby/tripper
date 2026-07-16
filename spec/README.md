@@ -14,12 +14,13 @@ two sections always change in tandem, they belong in the same file. Edit via the
 ## Files
 
 - **`architecture.md`**: stack, moving parts, deployment, secrets, cold-start stance, M1 defaults.
-- **`schema.md`**: trip input, the tripper/agent contract, and the Firestore job document.
+- **`schema.md`**: trip input, the tripper/agent contract, and the per-domain Firestore data model.
 - **`access.md`**: Google sign-in (Firebase Auth), the access allowlist, and Firestore security rules.
-- **`flows.md`**: the async job lifecycle, reliability (lease / sweeper / retries), and errors.
+- **`flows.md`**: the async job lifecycle (fan-out, per-domain runs, refine loop), reliability, errors.
 - **`ui.md`**: frontend layout (the Vite + React wireframe).
 - **`agents.md`**: agent vendoring (submodules), the read-only rule, the bump gate.
-- **`roadmap.md`**: milestones (M1 is current) and deferred work.
+- **`roadmap.md`**: milestones (M2 is current) and deferred work.
+- **`archive.md`**: superseded designs kept for memory (the M1 single-doc job model).
 
 ## Reading order
 

@@ -6,7 +6,7 @@
   Firestore read and write then carries the user's identity as `request.auth.uid` and email as
   `request.auth.token.email`.
 - The backend runs with the **Firebase Admin SDK**, which bypasses security rules. That is why the
-  client rules below can be strict while the backend still writes results to the same doc.
+  client rules below can be strict while the backend still writes results into the trip's subtree.
 - Sign-in replaces the old shared app-secret: there is no public endpoint, and Firestore access is
   gated by auth, the allowlist, and the rules below (`architecture.md` under Access control).
 
@@ -28,8 +28,9 @@ A self-serve admin UI for this is deferred (`roadmap.md`); the console is the M1
 ## Ownership model
 
 Jobs live under the signed-in user's own path, so ownership is structural, not a field to guard:
-`users/{uid}/trips/{tripId}` (doc shape: `schema.md`). Isolation is the `{uid}` segment matched
-against `request.auth.uid`; a user can never name another user's path.
+`users/{uid}/trips/{tripId}` and its whole subtree (`domains/**`; shapes in `schema.md`). Isolation
+is the `{uid}` segment matched against `request.auth.uid`; a user can never name another user's path,
+and every nested rule below inherits that `{uid}`.
 
 ## Security rules
 
@@ -54,16 +55,45 @@ service cloud.firestore {
       allow read:   if request.auth.uid == uid;
       allow create: if request.auth.uid == uid
                     && request.resource.data.status == "pending"
-                    && !("results" in request.resource.data)
                     && accessOk();
-      allow update, delete: if false;
+      allow update, delete: if false;   // backend sets active / error via the Admin SDK
+
+      match /domains/{domain} {
+        allow read:  if request.auth.uid == uid;
+        allow write: if false;          // fan-out + run state are backend-only (Admin SDK)
+
+        match /suggested/{suggestionId} {
+          allow read: if request.auth.uid == uid;
+          // the client may change ONLY the feedback mark; every other field is backend-owned
+          allow update: if request.auth.uid == uid
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys().hasOnly(["feedback"]);
+          allow create, delete: if false;
+        }
+
+        match /selected/{itemId} {     // the user's own choices, owned outright
+          allow read, create, update, delete: if request.auth.uid == uid;
+        }
+
+        match /refinements/{refineId} {
+          allow read:   if request.auth.uid == uid;
+          allow create: if request.auth.uid == uid
+                        && request.resource.data.status == "pending"
+                        && accessOk();
+          allow update, delete: if false;   // backend transitions the run
+        }
+      }
     }
   }
 }
 ```
 
-- The client may **create** only a clean `pending` doc (no `results`) under its own path *and* only
-  if allowed by `accessOk()`, and may **read** its own trips.
-- The client may not **update** or **delete**; the backend performs every transition
-  (`running` / `done` / `error`) via the Admin SDK.
+- The client may **create** only a `pending` trip doc under its own path, and only if allowed by
+  `accessOk()`, and may **read** everything under its own trips.
+- The backend (Admin SDK) owns the fan-out, the `domains/{domain}` docs, all run state, and every
+  `suggested` field **except** `feedback`; the client may not create or delete candidates.
+- On a `suggested` doc the client may patch **only** `feedback` (the wanted/unwanted mark).
+- The client owns its `selected` docs outright (create / update / delete its choices).
+- The client creates a `pending` `refinements` doc (again `accessOk()`-gated, it is paid work) to
+  trigger a refine; the backend transitions it.
 - `config/access` must be seeded during infra setup, or `get()` fails closed and denies everything.

@@ -21,16 +21,18 @@ the frontend writes a job to Firestore and listens for the result while the back
 
 ## Major moving parts
 
-- **Orchestrator** (Firestore-triggered): fires on create of `users/{userId}/trips/{tripId}`,
-  claims the job idempotently, routes the relevant fields to each active agent, runs independent
-  agents concurrently when there is more than one, and writes results back. M1 has one agent, so
-  there is no fan-out yet. Lifecycle and idempotency: `flows.md`.
-- **Sweeper** (scheduled via Cloud Scheduler): recovers jobs stuck in `running` after a worker
-  crash or timeout. Details: `flows.md`.
-- **Agent contract + adapters**: tripper defines one contract (`schema.md`); each agent is reached
-  through a tripper-owned **adapter** (`tripper/agents/<name>_adapter.py`) that calls the agent's
-  clean API, supplies Nebius config, and maps the result to the contract. The orchestrator knows
-  only the contract.
+- **Orchestrator** (Firestore-triggered): on create of a trip doc it **fans out**, creating a
+  `domains/{domain}` doc per active agent; each domain doc (search) and each `refinements` doc
+  (refine) is then its own create-triggered, idempotently-claimed, leased run that writes candidates
+  into that domain's `suggested`. Independent domains run concurrently. M2 ships accommodations;
+  activities / flights join later (`roadmap.md`). Fan-out, lifecycle, and the refine loop: `flows.md`.
+- **Sweeper** (scheduled via Cloud Scheduler): recovers domain / refinement runs stuck in `running`
+  after a worker crash or timeout. Details: `flows.md`.
+- **Agent contract + adapters**: each agent is reached through a tripper-owned **adapter**
+  (`tripper/agents/<name>_adapter.py`) that calls the agent's clean API (search, and refine where
+  supported), supplies Nebius config, and maps the result to the neutral per-domain storage shape
+  (`ResultItem` + `detail`, `schema.md`). The orchestrator knows only that neutral shape and the
+  agent contract (`agents.md`).
 - **Agent config is per-agent**, read from environment variables (or a settings object) and
   supplied by that agent's adapter. The hotel agent uses `ENABLED_PROVIDERS`, `SCORER`,
   `LLM_BACKEND`, and either the Ollama serverless endpoint (`NEBIUS_ENDPOINT_URL`, optional

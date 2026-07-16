@@ -17,13 +17,21 @@ rule), so all of this lives in the agent's own repo.
    layout; `pip install -e .` from a clean venv succeeds and makes it importable. Tripper installs
    the submodule this way into the Cloud Function at deploy (`architecture.md`). A flat pile of
    scripts is not installable.
-2. **One synchronous, machine-facing entry point.** A single callable, dict/JSON in and dict/JSON
-   out; no HTTP, CLI, or subprocess on the call path (an async core provides a sync wrapper). Stable
-   import path + name — tripper pins a ref and imports exactly it. Reference: `hotel_finder.search_sync`.
+2. **One or more synchronous, machine-facing entry points.** Each a single callable, dict/JSON in
+   and dict/JSON out; no HTTP, CLI, or subprocess on the call path (an async core provides a sync
+   wrapper). Stable import path + name — tripper pins a ref and imports exactly it. A **search**
+   entry point is required (reference: `hotel_finder.search_sync`). An agent that supports the
+   wanted/unwanted **feedback loop** also exports a **refine** entry point: it takes the prior
+   request + candidates + the user's wanted/unwanted marks and returns the *same* response shape,
+   biasing toward wanted and away from unwanted (reference target: `hotel_finder.refine_sync`; the
+   hotel agent's refine is upstream WIP, `roadmap.md`). Tripper drives the loop through the adapter
+   and the refine flow in `flows.md`.
 3. **Stable request/response schema.** Input fields and output structure documented and versioned;
    Pydantic v2 models exported from the package preferred (hotel: `HotelSearchRequest` /
    `HotelSearchResponse`), a JSON schema is the minimum. The adapter maps tripper's contract
-   (`schema.md`) to and from this.
+   (`schema.md`) to and from this. Each response item carries a **stable id**, unique within a
+   request, so the consumer can mark it and echo it back for refine; tripper uses it as the
+   `suggested` doc id (`schema.md`). Hotel: `Pick` promotes the record's `id` + `source`.
 4. **Config by injection.** LLM endpoint / keys / providers / tokens read from env vars or an
    injectable settings object; no hardcoded secrets, no reading a private `.env`. Tripper holds the
    credentials and passes them (`architecture.md` under Deployment & secrets). Reference:

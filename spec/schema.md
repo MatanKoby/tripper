@@ -1,9 +1,16 @@
 # Schema
 
-Data shapes for the UI form, the tripper/hotel-agent contract, and the Firestore job document.
-The hotel agent owns the request/response shapes (Pydantic `HotelSearchRequest` /
-`HotelSearchResponse`); tripper's orchestrator owns the transport wrapper. Tripper's
-implementation lives in `tripper/contract.py`. This contract is agreed with the hotel agent.
+Data shapes for the UI form, the tripper/agent contract, and the Firestore data model. The hotel
+agent owns its request/response shapes (Pydantic `HotelSearchRequest` / `HotelSearchResponse`);
+tripper's orchestrator owns the neutral, per-domain **storage** shapes it writes to Firestore
+(`ResultItem`, the domain/suggested/selected/refinement docs below). Tripper's implementation lives
+in `tripper/contract.py`. The agent contract is agreed with the hotel agent (`agents.md`).
+
+The Firestore data model is **per domain**: one trip fans out to a `domains/{domain}` subtree
+(accommodations, activities, flights), each holding its own `suggested` candidates, `selected`
+choices, and `refinements` (the wanted/unwanted feedback loop). Lifecycle and triggers are in
+`flows.md`; ownership and rules in `access.md`. The M1 single-document `results` model this replaces
+is in `archive.md`.
 
 `place` / `stay` / `guests` are shared trip context that later agents (flight, activities) reuse;
 `filters` / `lenses` / `picks_per_lens` are hotel-specific. The hotel adapter maps `TripInput` to
@@ -71,6 +78,8 @@ The agent never raises for a data outcome; problems are `agent_status` + `warnin
 
 // Pick (flat, rendering-ready)
 {
+  "id":                     "string",               // stable per-hotel identity (agents.md): tripper's suggestion doc id + the refine feedback ref
+  "source":                 "string",               // provider that produced it; unique together with id
   "name":                   "string",
   "score":                  "number 0..1",          // normalized, comparable across lenses
   "rationale":              "string",
@@ -92,20 +101,33 @@ The agent never raises for a data outcome; problems are `agent_status` + `warnin
   "board": "string|null", "refundable": "bool", "over_budget": "bool = false" }
 ```
 
-## Transport wrapper: TripSuggestions (orchestrator-owned; job `results`)
+## Storage item: ResultItem (neutral) + detail
+
+Each agent payload is mapped, in that agent's adapter, to a list of **neutral `ResultItem`** docs
+that all domains share, so one save seam writes them and the FE list/skeleton is domain-agnostic.
+Domain-specific fields the neutral shape doesn't cover live in an opaque `detail` blob that the
+domain's own renderer reads (`ui.md`). The adapter maps, e.g., hotel `Pick` → `ResultItem`
+(`name`→`title`, `area`→`subtitle`, best `offer`→`price`, `amenities`→`badges`), dropping the rest
+into `detail` (offers, `star_rating`, `why` subscores, `distance_to_desired_km`, coordinates, …).
 
 ```jsonc
+// ResultItem — the neutral, rendering-ready suggestion shape (all domains)
 {
-  "status": "ok|error",                // transport: error = the call/import/timeout failed
-  "error":  "{ message, kind }|null",  // only when status == "error"
-  "hotel":  "<agent payload>|null"     // present when status == "ok"
+  "title":     "string",
+  "subtitle":  "string|null",
+  "score":     "number 0..1|null",              // comparable within a domain
+  "price":     "{ amount: number, per: \"night\"|\"total\"|\"person\", currency: string }|null",
+  "rating":    "number|null",
+  "image_url": "string|null",
+  "url":       "string|null",
+  "badges":    "string[] = []",                 // short chips (amenities, refundable, …)
+  "rationale": "string|null",
+  "detail":    "object = {}"                    // domain-specific passthrough; the domain renderer reads it
 }
 ```
 
-`agent_status` `empty`|`degraded` both map to transport `status` `"ok"`. The transport `status` /
-`error` mirror the job doc's lifecycle `status` / `error` (`flows.md`): a failed call marks the job
-`error`, and this object is written as the job's `results` on success. M1 has only `hotel`; `flight`
-and `activities` arrive later (`roadmap.md`).
+The same neutral shape is what `selected.snapshot` copies (below), so a selection renders with the
+same renderer as a suggestion.
 
 ## Shared types
 
@@ -113,18 +135,64 @@ and `activities` arrive later (`roadmap.md`).
 - `GeoPoint` = `{ lat: number, lon: number }`
 - `Amenity` in: `wifi, pool, gym, breakfast, parking, ac, spa, pet_friendly, kitchen, bar, restaurant, airport_shuttle`
 - `LensName` in: `stratified_best, overall_standouts, hidden_gems`
+- `Domain` in: `accommodations, activities, flights`
 
-## Firestore job document
+## Firestore data model
 
-One document per request. Its path, ownership, and access rules are in `access.md`; the meaning
-and transitions of the lifecycle fields are in `flows.md`.
+One trip fans out to a per-domain subtree. Paths, ownership, and rules: `access.md`. Lifecycle,
+triggers, and the refine loop: `flows.md`. `{domain}` is a `Domain` value; the single collection
+plus the `{domain}` wildcard keeps rules and `collectionGroup` queries uniform.
 
-Path: `users/{uid}/trips/{tripId}`
+```
+users/{uid}/trips/{tripId}                     # trip: input + status rollup
+  /domains/{domain}                            # one per active agent (accommodations | activities | flights)
+      /suggested/{suggestionId}                # candidates (backend), + client feedback mark
+      /selected/{itemId}                       # the user's choices (client)
+      /refinements/{refineId}                  # a wanted/unwanted refine request (client) -> a refine run
+```
 
+**Trip** `users/{uid}/trips/{tripId}`
 - `input`: the `TripInput` above. Written by the client on create.
-- `status`: `"pending" | "running" | "done" | "error"`.
-- `results`: `TripSuggestions`. Written by the backend when `status == "done"`.
-- `error`: `{ message, kind }`. Written by the backend when `status == "error"`.
+- `status`: `"pending" | "active" | "error"`. `pending` on create; `active` once the backend has
+  fanned out to the domain docs; `error` only if fan-out itself fails. A trip is **never terminal**
+  (the user can always refine): overall progress is read from the domain docs, not this field.
 - `createdAt`, `updatedAt`: server timestamps.
+
+**Domain** `.../domains/{domain}` — durable per-domain state **and** the round-1 search job (its
+`onCreate` is the search trigger; `flows.md`).
+- `domain`: `Domain`.
+- `agentStatus`: `"pending" | "running" | "idle" | "error"` — claim state of the current run;
+  `idle` = a round completed, ready to view / refine. Cycles `idle`→`running`→`idle` each round.
+- `selectionMode`: `"single" | "multi"` (accommodations: `single`).
+- `selectionStatus`: `"none" | "partial" | "confirmed"`.
+- `round`: highest completed round (1 = initial search).
+- `warnings`: `string[]`; `diagnostics`: `object` (latest run, from the agent); `counts`: `object`.
+- Reliability fields for the round-1 job (`flows.md`): `startedAt`, `leaseExpiresAt`, `attempts`,
+  `maxAttempts`, `lastError`.
+
+**Suggested** `.../suggested/{suggestionId}` — one candidate; `suggestionId` is the agent's stable
+item id (hotel: `Pick.id`, identity per `agents.md`). Backend-written except `feedback`.
+- All `ResultItem` fields above (`title`, `score`, `price`, `detail`, …).
+- `lens`: `LensName|null` (hotel grouping); `rank`: `int`; `round`: `int` — sort/group keys, since
+  subcollection docs are unordered.
+- `dismissed`: `bool = false` — superseded / removed from view without deleting.
+- `feedback`: `"liked" | "disliked" | null` — **client-written**, the only client-writable field
+  (`access.md`); the wanted/unwanted input a refine reads.
+- `createdAt`.
+
+**Selected** `.../selected/{itemId}` — a chosen item. **Client-written.** One doc for accommodations
+now (`selectionMode: single`); the shape already supports many.
+- `suggestionId`: the `suggested` doc it came from (back-reference).
+- `snapshot`: a copy of that suggestion's `ResultItem` at selection time, so the choice survives the
+  agent re-running.
+- `meta`: `object` — per-agent selection metadata (accommodations: nights; activities: day / time /
+  order; flights: leg / cabin).
+- `status`: `"selected" | "confirmed"`; `createdAt`.
+
+**Refinement** `.../refinements/{refineId}` — one refine request + its run. **Client-creates**
+`{ round, status: "pending" }`; its `onCreate` triggers the refine run, which reads the current
+`feedback` marks off `suggested`, calls the agent's refine entry point (`agents.md`), and **appends**
+new picks to `suggested` tagged with this `round` (`flows.md`). Backend transitions it.
+- `round`: `int`; `status`: `"pending" | "running" | "done" | "error"`.
 - Reliability fields (`flows.md`): `startedAt`, `leaseExpiresAt`, `attempts`, `maxAttempts`,
-  `lastError`.
+  `lastError`; `createdAt`.
