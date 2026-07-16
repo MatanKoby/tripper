@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 11 — Data model & Firestore config
+- Owner: claude
+- Started: 2026-07-16 19:01
+
 ## Completed
 
 ### Batch 8 — CI/CD (GitHub Actions)
