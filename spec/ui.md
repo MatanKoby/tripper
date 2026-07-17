@@ -3,8 +3,10 @@
 The frontend is an unstyled wireframe: correct layout and a working end-to-end flow, no visual
 design (styling deferred, `roadmap.md`). Built with Vite + React (`architecture.md`). Input shape is
 in `schema.md`; the per-domain data model and the lifecycle it drives are in `schema.md` / `flows.md`;
-sign-in and access in `access.md`. Each domain renders with its **own** renderer (its own flair) over
-the neutral `ResultItem` + `detail`, so the sections don't share one generic card.
+sign-in and access in `access.md`. Each domain has its **own** section and container. M2's first
+pass renders each domain's suggestions as **raw JSON** (the whole `suggested` doc, `ResultItem` +
+`detail`) in that container — a working end-to-end read; styled, per-domain renderers (each with its
+own flair) are deferred (`roadmap.md`).
 
 ## Layout
 
@@ -12,9 +14,9 @@ A single scrolling page with three domain sections, in a three-column frame:
 
 - **Left**: a vertical tab nav with **Flights**, **Accommodation**, **Activities**. Clicking a tab
   scroll-jumps to that section. It is navigation, not separate pages.
-- **Center**: one results container per section, stacked in the same order. **Accommodation** is
-  populated first (M2, from the hotel agent); **Flights** and **Activities** show "coming soon" until
-  their agents integrate onto the same schema (`roadmap.md`).
+- **Center**: one results container per section, stacked in the same order. **All three** are
+  populated in M2 — each domain's search runs through its adapter and its `suggested` is rendered as
+  raw JSON in its own container (`schema.md`).
 - **Right** (proposed, flagged): the **trip-input form** (`schema.md` under Trip input) + a submit
   button, plus the **job status** indicator ("thinking / warming up", and errors). This is where the
   user enters parameters and starts a job. Alternative under consideration: move the form to a top
@@ -31,8 +33,8 @@ A single scrolling page with three domain sections, in a three-column frame:
 - Each section is driven by its own `domains/{domain}.agentStatus` (`flows.md`): `pending` /
   `running` shows the "thinking / warming up" state (a first request can take a few minutes on a cold
   start, `architecture.md`); `idle` renders `suggested`; `error` shows the message.
-- **Rendering:** the domain's own renderer draws each `suggested` card from `ResultItem` + `detail`;
-  accommodations groups by `lens` and hides `dismissed` candidates.
+- **Rendering (M2):** each section dumps its `suggested` docs as raw JSON in its container; a real
+  per-domain renderer (cards, grouping by `lens`, hiding `dismissed`) is deferred (`roadmap.md`).
 - **Feedback & refine:** each suggestion card has like / dislike controls that write `feedback`
   (`schema.md`); a per-section **Refine** button, enabled only when the domain is `idle`, creates a
   `refinements` doc to fetch more that fit the marks (`flows.md`).

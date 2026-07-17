@@ -55,6 +55,33 @@ rule), so all of this lives in the agent's own repo.
 `python -c "from <package> import <entry>; print(<entry>({<minimal input>}))"` imports and returns a
 structured result.
 
+## Driving the agents (M2)
+
+How each adapter drives its agent for a search and a refine run (`flows.md`):
+
+- **Hotel** (`hotel_finder.search_sync`, refine `refine_sync`): a dedicated search and refine entry
+  point. Refine is upstream WIP (bump gate); until it lands, hotel refine stays deferred.
+- **Flights** (`flight_finder.run(req, settings)`): a pure function — one request in, one result
+  out, no state. Search and refine are both a `run(...)`; refine re-runs with an **adjusted request**
+  (tighter budget, shifted dates) built from the Firestore feedback marks. There is no dedicated
+  refine entry point and none is needed.
+- **Activities** (`travel_agent.ActivitiesAgent().handle`): natively a multi-turn conversation with
+  an **in-process** session (a LangGraph `MemorySaver` the public API won't let us replace), so we
+  **drive it statelessly** and the tripper function is **never kept alive** for it:
+  - *Search run:* inside the one invocation, `handle(start)` then `handle(feedback, ...)` with
+    `approve` / `finish` to reach `completed`, map the result, **discard the instance.** No
+    `session_id` is persisted; nothing survives the run.
+  - *Refine run:* a fresh invocation, a new instance, **never a resume.** The user's wanted/unwanted
+    marks (read off `suggested`, `flows.md`) are folded into a **new `start` request** — `interests`
+    gains/drops categories, `notes` carries liked/disliked names — then driven to completion again
+    and appended as the next round. The "state" lives in Firestore, not the agent.
+  - Cleaner upstream: a single stateless `plan(trip, selections)` entry point (dropping the LangGraph
+    stack) would remove the intra-run loop and shrink the deploy image. Tracked as agent-repo
+    feedback, not a tripper dependency.
+
+So flights and activities need **no dedicated refine entry point** — refine is just search with the
+feedback folded into the request, statelessly. Only the hotel refine waits on upstream.
+
 ## Read-only rule
 
 `vendor/agents/**` is owned upstream and **never edited by tripper**. Interface gaps are fixed

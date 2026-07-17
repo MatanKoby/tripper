@@ -12,10 +12,15 @@ choices, and `refinements` (the wanted/unwanted feedback loop). Lifecycle and tr
 `flows.md`; ownership and rules in `access.md`. The M1 single-document `results` model this replaces
 is in `archive.md`.
 
-`place` / `stay` / `guests` are shared trip context that later agents (flight, activities) reuse;
-`filters` / `lenses` / `picks_per_lens` are hotel-specific. The hotel adapter maps `TripInput` to
-the agent's `HotelSearchRequest`, expanding `guests` into a single room when `stay.rooms` is null,
-and mapping trip-level `guest_nationality` into the agent's `stay.guest_nationality`.
+`place` / `stay` / `guests` are shared trip context all three agents reuse (destination, dates,
+travelers); `filters` / `lenses` / `picks_per_lens` are hotel-specific, and the flight / activities
+fields below are theirs. The hotel adapter maps `TripInput` to the agent's `HotelSearchRequest`,
+expanding `guests` into a single room when `stay.rooms` is null, and mapping trip-level
+`guest_nationality` into the agent's `stay.guest_nationality`. The flight and activities adapters
+map the same shared context to their own requests (`place` → destination, `stay.check_in/out` →
+flight or activity dates, `guests` → `travelers`) plus their own fields; the per-domain mapping is
+in *Flights & activities → ResultItem* below, and the agents' own request/response schemas live in
+their repos (`agents.md`).
 
 ## Request: TripInput (UI form and job `input`; tripper to hotel agent)
 
@@ -50,8 +55,15 @@ and mapping trip-level `guest_nationality` into the agent's `stay.guest_national
     "must_have_amenities": "Amenity[] = []",
     "property_types":      "string[] = []"   // empty = all lodging types; wired to LiteAPI hotelTypeId
   },
-  "lenses":         "LensName[]|null = null", // null = all three
-  "picks_per_lens": "int >=1 = 3"             // N per lens (also caps the budget-too-low fallback)
+  "lenses":         "LensName[]|null = null", // null = all three (hotel)
+  "picks_per_lens": "int >=1 = 3",            // N per lens (hotel; also caps the budget-too-low fallback)
+  // --- flights (agents.md) ---
+  "origin":            "string|null",         // trip departure point: city name or 3-letter IATA
+  "flight_budget_usd": "number|null",         // max airfare in USD (flight offers are USD-only)
+  // --- activities (agents.md) ---
+  "activities_budget_usd": "number|null",     // USD on-the-ground budget (food/activities/transport, ex-lodging); adapter defaults when null (agent requires > 0)
+  "interests":     "InterestGroup[]|null = null", // null = the agent's default (culture, food)
+  "travel_style":  "TravelStyle = \"balanced\"" // relaxed | balanced | packed (activities pace)
   // intent / anchor_hotel dropped for M1 (ZONE-only)
 }
 ```
@@ -129,12 +141,35 @@ into `detail` (offers, `star_rating`, `why` subscores, `distance_to_desired_km`,
 The same neutral shape is what `selected.snapshot` copies (below), so a selection renders with the
 same renderer as a suggestion.
 
+### Flights & activities → ResultItem (agents.md)
+
+The flight and activities agents own their request/response schemas (their repos, `agents.md`); we
+do not restate them here. Their adapters map into the neutral `ResultItem` + `detail`, like the
+hotel one:
+
+- **Flights** (`flight_finder.run`): one `ResultItem` per market `Offer` (cheapest first) — `title`
+  the route + market, `price` `{ amount: price_usd, per: "total", currency: "USD" }`, `url` a
+  booking link, `badges` within/over-budget, `detail` the raw offer + resolved query. The suggestion
+  id is the offer's market code (stable within a request). Run `summary`, `within_budget_count`,
+  `pricing_source` go on the domain doc's `diagnostics`.
+- **Activities** (`travel_agent.ActivitiesAgent`, driven statelessly — `agents.md`): one `ResultItem`
+  per `RecommendedActivity` — `title` the name, `subtitle` its category, `price`
+  `{ amount: estimated_cost_usd, per: "person" }`, `url` a booking link, `detail` the raw activity.
+  The final `Itinerary` (day plans, budget breakdown, tips) is stored on the domain doc's
+  `diagnostics` for rendering.
+
+M2 renders each domain's `suggested` as **raw JSON in its own container** (`ui.md`); the neutral
+mapping is kept anyway, so a real per-domain renderer is cheap to add later.
+
 ## Shared types
 
 - `Room` = `{ adults: int >= 1, children_ages: int[] }`
 - `GeoPoint` = `{ lat: number, lon: number }`
 - `Amenity` in: `wifi, pool, gym, breakfast, parking, ac, spa, pet_friendly, kitchen, bar, restaurant, airport_shuttle`
 - `LensName` in: `stratified_best, overall_standouts, hidden_gems`
+- `TravelStyle` in: `relaxed, balanced, packed` (activities pace)
+- `InterestGroup` in: `nature, food, culture, adventure, nightlife, family, shopping, beach`
+  (activities; the agent's 8 category groups, each selects the whole group — `agents.md`)
 - `Domain` in: `accommodations, activities, flights`
 
 ## Firestore data model

@@ -32,10 +32,12 @@ and the user may refine or select at any time.
    `{ round: N+1, status: "pending" }`. The FE offers this only once the domain is `idle` (round-1
    results exist), so a cold-start-in-progress search can't be refined against empty suggestions.
 3. The `onCreate` on the refinement doc fires the **refine run**: it claims the refinement doc, sets
-   the domain `agentStatus: "running"`, reads the current `feedback` marks off `suggested`, calls the
-   agent's refine entry point (`agents.md`) with the prior candidates + wanted/unwanted, **appends**
-   the returned picks to `suggested` tagged with `round: N+1`, marks the refinement `done`, and
-   returns the domain to `idle`.
+   the domain `agentStatus: "running"`, reads the current `feedback` marks off `suggested`, and calls
+   the agent through its adapter with the prior candidates + wanted/unwanted — the agent's dedicated
+   refine entry point where it has one (hotel), or, for an agent that has none (flights, activities),
+   a re-run of search with the feedback folded into the request (`agents.md`). It **appends** the
+   returned picks to `suggested` tagged with `round: N+1`, marks the refinement `done`, and returns
+   the domain to `idle`.
 4. Superseded / unwanted candidates are hidden with `dismissed: true`, not deleted; the FE filters on
    `dismissed` and groups by `round` / `lens`.
 

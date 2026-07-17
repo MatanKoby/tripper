@@ -7,12 +7,14 @@
   `architecture.md`, `flows.md`, `access.md`. The single-doc `results` model is now superseded
   (`archive.md`).
 - **M2 (current)**: the **per-domain data model** (`domains/suggested/selected/refinements`,
-  `schema.md`), backend **fan-out** (`flows.md`), and the hotel **feedback / refine loop**. Built
-  accommodations-first: the DB batch rebuilds the accommodations vertical on the new model
-  (`BUILD_QUEUE.md`), then activities and flights integrate onto the same schema. Upstream
-  prerequisites: the hotel agent's **refine** entry point + stable `Pick.id` (`agents.md`), the
-  **activities agent** (not yet vendored), and a clean **flight-agent API** (flight is CLI-only
-  today).
+  `schema.md`) and backend **fan-out** (`flows.md`), with **all three domains integrated** —
+  accommodations rebuilt on the new model, and **flights** + **activities** vendored and wired in
+  (`agents.md`, `BUILD_QUEUE.md`). The FE renders each domain's suggestions as **raw JSON per
+  container** (`ui.md`); the **feedback / refine loop** follows (`BUILD_QUEUE.md`). The two new
+  agents already meet the integration contract and need **no upstream change** — the activities
+  agent is driven **statelessly** (`agents.md`), so flights and activities refine with no
+  prerequisite. The only upstream gate left is the hotel agent's **`refine_sync`** + stable
+  `Pick.id`, which blocks only the *hotel* refine.
 - **Later**: the **orchestration agent** — an agentic loop that plans interactively with the user,
   multi-turn, replacing or augmenting the deterministic fan-out.
 
