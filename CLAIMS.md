@@ -19,11 +19,36 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 12 — Backend fan-out & per-domain search run (domain-general)
 - Owner: claude
 - Started: 2026-07-17 06:24
+- Finished: 2026-07-17 07:30
+- Commit: fb2e68e
 
-## Completed
+**What shipped.** The M1 single-doc orchestrator is replaced by the M2 fan-out (`spec/flows.md`).
+The `Agent` seam (`tripper/agents/base.py`) is now domain-general: an adapter declares its `domain`
++ `selection_mode` and returns a neutral `DomainSearchResult` (a list of `Suggestion` = stable id +
+`ResultItem` + optional lens, plus `diagnostics` / `warnings` / `counts`), never `HotelPayload`.
+`tripper/orchestrator.py` gained `fan_out` (trip `onCreate` → mark the trip `active`, idempotently
+create one `domains/{domain}` doc per active agent) and `run_search` (domain `onCreate` → claim/lease
+the domain doc on `agentStatus`, run the adapter, write `suggested/*`, drive to `idle`; a failure
+errors only that domain). `tripper/jobs.py`: `claim_job` is parametrized by `status_field`,
+`write_search_result` writes the candidates then flips the domain to `idle`, `write_run_error`
+replaces the single-doc terminal write (`write_done`/`write_error` removed). The hotel adapter now
+maps picks → `ResultItem` + `detail` (id = `"{lens}-{index}"` until the agent exposes a stable
+`Pick.id`, `spec/agents.md`). The sweeper reaps the `domains` collection group on `agentStatus`.
+`main.py` wires two create triggers (trip fan-out, domain search) + the sweeper.
+
+**Verification.** 66 tests pass against the Firestore emulator + the vendored hotel mock agent,
+including a full `fan_out` → `run_search` → `suggested/*` round-trip with the real `HotelAdapter`.
+`ruff check` clean.
+
+**Scope / follow-ups.** Only the hotel agent is active (this batch stays green with one domain);
+Batch 15 vendors flights + activities and activates all three. `TripSuggestions` remains in
+`contract.py` as documented M1 legacy (`spec/archive.md`). No Firestore rules change: search runs
+write via the Admin SDK, which bypasses rules.
 
 ### Batch 11 — Data model & Firestore config
 - Owner: claude

@@ -22,29 +22,13 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > integrated** — accommodations rebuilt on the new model, and **flights** + **activities** vendored
 > and wired in (`roadmap.md`, `schema.md`, `flows.md`, `agents.md`). The FE renders each domain as
 > **raw JSON per container**; the **feedback / refine loop** lands last. Supersedes the M1 single-doc
-> `results` model (`archive.md`). Suggested order: **12 → 15 → 14 → 13** (12 is the domain-general
-> foundation; 15 vendors the two new agents; 13's *hotel* refine is gated on upstream `refine_sync`
-> while flights/activities refine is not; 11 done).
+> `results` model (`archive.md`). Suggested order: **15 → 14 → 13** (15 vendors the two new agents
+> onto the Batch-12 fan-out; 13's *hotel* refine is gated on upstream `refine_sync` while
+> flights/activities refine is not; 11 + 12 done).
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
-
-### Batch 12 — Backend fan-out & per-domain search run (domain-general)  (dep: 11)
-
-- Trip `onCreate` → **fan-out**: set trip `active`, create a `domains/{domain}` doc per **active**
-  agent. The backend owns the active set (`flows.md`); **accommodations is active now**, flights /
-  activities are activated in Batch 15, so this batch lands and stays green with one domain.
-- Generalize the **Agent seam** (`tripper/agents/base.py`): an adapter returns neutral `ResultItem`s
-  (+ domain meta: `diagnostics` / `warnings` / `counts`), **not** `HotelPayload`. The orchestrator
-  knows only the neutral shape (`schema.md`, `architecture.md`).
-- Domain-doc `onCreate` → **search run**: claim/lease the domain doc (reuse the `jobs.py` claim on the
-  new doc), run that domain's adapter, write round-1 `ResultItem` `suggested` docs, set `agentStatus:
-  idle`. **Replace** the M1 single-doc write path (`write_done` / `TripSuggestions`) with per-domain
-  `suggested` writes.
-- Re-map the **hotel adapter** onto `ResultItem` + `detail` (`Pick` → `ResultItem`, `Pick.id` the
-  suggestion id, the rest into `detail`; `schema.md`, `agents.md`).
-- Sweeper: `collectionGroup` over domain docs (`flows.md`). Replaces the M1 single-orchestrator path.
 
 ### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension  (dep: 12)
 

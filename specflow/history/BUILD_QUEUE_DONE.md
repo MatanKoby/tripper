@@ -10,6 +10,23 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 12 — Backend fan-out & per-domain search run (domain-general)
+Replaced the M1 single-doc orchestrator with the M2 fan-out (`spec/flows.md`). The `Agent` seam
+(`tripper/agents/base.py`) is now domain-general: an adapter declares `domain` + `selection_mode` and
+returns a neutral `DomainSearchResult` (list of `Suggestion` = stable id + `ResultItem` + optional
+lens, plus `diagnostics`/`warnings`/`counts`), never `HotelPayload`. `tripper/orchestrator.py` gained
+`fan_out` (trip `onCreate` → mark `active`, idempotently create one `domains/{domain}` doc per active
+agent) and `run_search` (domain `onCreate` → claim/lease the domain doc on `agentStatus`, run the
+adapter, write `suggested/*`, drive to `idle`; a failure errors only that domain). `tripper/jobs.py`
+parametrized `claim_job` by `status_field`, added `write_search_result` (candidates then flip to
+`idle`) and `write_run_error` (removed `write_done`/`write_error`). The hotel adapter now maps picks →
+`ResultItem` + `detail` (suggestion id `"{lens}-{index}"` until upstream `Pick.id`, `spec/agents.md`).
+The sweeper reaps the `domains` collection group on `agentStatus`; `main.py` wires the trip-fan-out and
+domain-search triggers + the sweeper. 66 pytest pass against the emulator + the vendored hotel mock
+(incl. a full `fan_out`→`run_search`→`suggested/*` round-trip), ruff clean. Key commit `fb2e68e`.
+**Scope:** only the hotel agent is active (stays green with one domain); Batch 15 vendors flights +
+activities and activates all three. `TripSuggestions` stays as documented M1 legacy (`archive.md`).
+
 ## Batch 11 — Data model & Firestore config (M2 foundation)
 Shipped tripper's per-domain M2 storage shapes + Firestore config (`spec/schema.md`, `spec/access.md`),
 a pure foundation (no agent behavior; Batches 12/14 build on it). `tripper/contract.py` gains the
