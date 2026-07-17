@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 12 — Backend fan-out & per-domain search run (domain-general)
+- Owner: claude
+- Started: 2026-07-17 06:24
+
 ## Completed
 
 ### Batch 11 — Data model & Firestore config
