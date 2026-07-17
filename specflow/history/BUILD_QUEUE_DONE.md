@@ -10,6 +10,29 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 11 — Data model & Firestore config (M2 foundation)
+Shipped tripper's per-domain M2 storage shapes + Firestore config (`spec/schema.md`, `spec/access.md`),
+a pure foundation (no agent behavior; Batches 12/14 build on it). `tripper/contract.py` gains the
+neutral `ResultItem` (+ nested `Price`) and the four Firestore doc models `DomainDoc`/`SuggestedDoc`/
+`SelectedDoc`/`RefinementDoc` (+ enums `Domain`, `DomainAgentStatus`, `SelectionMode`,
+`SelectionStatus`, `RefinementStatus`, `Feedback`, `SelectedStatus`, `PricePer`); field names are the
+exact Firestore keys (camelCase where the doc is) so `to_dict`/`from_dict` round-trip the stored shape,
+and per the M1 precedent the models hold durable *content* while reliability/lease + server-timestamp
+fields stay imperative for Batch 12. `firestore.rules` ports `access.md`'s subtree verbatim (backend
+`domains`/`suggested` except a client feedback-only patch via `affectedKeys().hasOnly(["feedback"])`,
+client-owned `selected`, `accessOk()`-gated `refinements`; trip-create drops the M1 `!("results")`
+guard). `firestore.indexes.json` adds collection-group sweeper indexes for `domains`
+(`agentStatus`+`leaseExpiresAt`) and `refinements` (`status`+`leaseExpiresAt`) and the ordered
+`suggested` index (`dismissed`,`lens`,`score` DESC,`round` DESC); the M1 `trips` index stays for the
+still-live M1 sweeper. Tests: +12 contract cases (62 pytest total), rules suite reworked 15→30 (new
+subtree cases) — ruff clean, emulator rules green, `import main` intact. Key commit `b22578a`.
+**Deliberate scope:** the M1 `TripSuggestions` wrapper is marked legacy but **not** deleted — the live
+M1 orchestrator still consumes it and `archive.md` keeps the M1 model running "until the DB batch
+rebuilds it", which is Batch 12; 12 does the physical removal when it replaces the orchestrator.
+**User `[MANUAL]`:** deploy the new rules + indexes from a workstation (`firebase deploy --only
+firestore`, `DEPLOY.md`) — CI is functions-only. Follow-up: Batch 14's `suggested` listener must order
+by `dismissed`/`lens`/`score` desc/`round` desc to match the index.
+
 ## Batch 8 — CI/CD (GitHub Actions)
 Shipped automated backend deploy to Cloud Functions Gen2 (`us-central1`) via GitHub Actions
 (`spec/architecture.md`, `spec/flows.md`). Chose the **Firebase CLI** over raw `gcloud` (the native

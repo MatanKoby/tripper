@@ -22,27 +22,11 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > accommodations-first (`roadmap.md`, `schema.md`, `flows.md`). It **supersedes** the M1 single-doc
 > `results` model (`archive.md`), so Batches 12 and 14 rebuild the accommodations vertical on the new
 > schema. Activities / flights integration comes *after* this milestone (`roadmap.md`), not yet
-> queued. Suggested order: **11 → (12, 14 in parallel) → 13** (13 gated on upstream).
+> queued. Suggested order: **(12, 14 in parallel) → 13** (13 gated on upstream; 11 done).
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
-
-### Batch 11 — Data model & Firestore config (foundation)
-
-Tripper-owned storage shapes + rules + indexes for the new tree (`schema.md`, `access.md`). No agent
-behavior yet; Batches 12 and 14 build on it.
-
-- `tripper/contract.py`: the neutral `ResultItem` (+ `price`), and the domain / suggested / selected /
-  refinement doc models (`schema.md` → Firestore data model). Retire the M1 `TripSuggestions` wrapper
-  (moved to `archive.md`).
-- Firestore **security rules** for the subtree (`access.md`): backend-owned `domains` + `suggested`
-  (except the client `feedback` field via `affectedKeys().hasOnly(["feedback"])`), client-owned
-  `selected`, `accessOk()`-gated `refinements` create.
-- **Indexes**: collection-group indexes for the sweeper (`domains` + `refinements` in `running` with
-  `leaseExpiresAt < now`) and the ordered `suggested` query (by `lens` / `score` / `round`, excluding
-  `dismissed`).
-- `[MANUAL]` reminder: rules + indexes deploy from a workstation, not CI (`DEPLOY.md`).
 
 ### Batch 12 — Backend fan-out & per-domain search run  (dep: 11)
 
