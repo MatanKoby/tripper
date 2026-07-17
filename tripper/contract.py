@@ -1,14 +1,23 @@
 """The tripper/agent contract and job domain types (``spec/schema.md``).
 
-Three groups of types, all Firestore-shaped (plain dicts of JSON-compatible primitives, with
-dates as ISO strings and ``GeoPoint`` as a ``{lat, lon}`` dict):
+Types, all Firestore-shaped (plain dicts of JSON-compatible primitives, with dates as ISO strings
+and ``GeoPoint`` as a ``{lat, lon}`` dict):
 
 - **Request** (``TripInput`` and children): the UI form and the job ``input``. Tripper hands this to
-  the hotel agent via the adapter (Batch 10).
-- **Response payload** (``HotelPayload`` and children): what the agent returns, before wrapping.
-- **Transport wrapper** (``TripSuggestions``): orchestrator-owned; written as the job ``results``.
+  the hotel agent via the adapter.
+- **Response payload** (``HotelPayload`` and children): what the hotel agent returns, before the
+  adapter maps it.
+- **Storage** (``ResultItem`` + the per-domain ``DomainDoc`` / ``SuggestedDoc`` / ``SelectedDoc`` /
+  ``RefinementDoc``): tripper's neutral, per-domain Firestore shapes (``spec/schema.md`` -> the
+  Firestore data model). One trip fans out to a ``domains/{domain}`` subtree; each domain holds its
+  own ``suggested`` candidates, ``selected`` choices, and ``refinements``. These model the durable
+  *content* of each doc; the lease / claim reliability fields and server timestamps are written
+  imperatively by the run machinery (``tripper.jobs``, ``spec/flows.md``), not modeled here.
+- **Legacy M1 transport wrapper** (``TripSuggestions``): the superseded single-document ``results``
+  model (``spec/archive.md``); still used by the M1 orchestrator until the fan-out batch replaces
+  it.
 
-Every model rejects unknown fields, so a malformed payload fails fast. ``from_dict`` /``to_dict``
+Every model rejects unknown fields, so a malformed payload fails fast. ``from_dict`` / ``to_dict``
 round-trip a model to and from a Firestore-shaped dict.
 """
 
@@ -21,22 +30,42 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
+    # enums
     "Amenity",
     "LensName",
     "AgentStatus",
     "TransportStatus",
+    "Domain",
+    "DomainAgentStatus",
+    "SelectionMode",
+    "SelectionStatus",
+    "RefinementStatus",
+    "Feedback",
+    "SelectedStatus",
+    "PricePer",
+    # shared value types
     "GeoPoint",
     "Room",
+    # request: TripInput
     "Place",
     "Stay",
     "Guests",
     "Filters",
     "TripInput",
+    # response: hotel agent payload
     "Offer",
     "Pick",
     "Resolved",
     "Diagnostics",
     "HotelPayload",
+    # storage: neutral item + per-domain Firestore docs
+    "Price",
+    "ResultItem",
+    "DomainDoc",
+    "SuggestedDoc",
+    "SelectedDoc",
+    "RefinementDoc",
+    # legacy M1 transport wrapper (spec/archive.md)
     "TripError",
     "TripSuggestions",
 ]
@@ -79,6 +108,73 @@ class TransportStatus(StrEnum):
 
     ok = "ok"
     error = "error"
+
+
+class Domain(StrEnum):
+    """A per-domain agent slot; each is a ``domains/{domain}`` doc (``spec/schema.md``)."""
+
+    accommodations = "accommodations"
+    activities = "activities"
+    flights = "flights"
+
+
+class DomainAgentStatus(StrEnum):
+    """Claim/run lifecycle of a domain's current round (the domain doc's ``agentStatus``).
+
+    Distinct from :class:`AgentStatus` (the hotel payload's *data* outcome). ``idle`` = a round
+    completed, ready to view / refine; it cycles ``idle`` -> ``running`` -> ``idle`` each round.
+    """
+
+    pending = "pending"
+    running = "running"
+    idle = "idle"
+    error = "error"
+
+
+class SelectionMode(StrEnum):
+    """How many items a domain lets the user select (accommodations: ``single``)."""
+
+    single = "single"
+    multi = "multi"
+
+
+class SelectionStatus(StrEnum):
+    """A domain's selection progress."""
+
+    none = "none"
+    partial = "partial"
+    confirmed = "confirmed"
+
+
+class RefinementStatus(StrEnum):
+    """Lifecycle of a refine request/run (the refinement doc's ``status``)."""
+
+    pending = "pending"
+    running = "running"
+    done = "done"
+    error = "error"
+
+
+class Feedback(StrEnum):
+    """The client's wanted/unwanted mark on a suggestion (the refine loop's input)."""
+
+    liked = "liked"
+    disliked = "disliked"
+
+
+class SelectedStatus(StrEnum):
+    """Lifecycle of a chosen item."""
+
+    selected = "selected"
+    confirmed = "confirmed"
+
+
+class PricePer(StrEnum):
+    """The basis a :class:`Price` amount is quoted per."""
+
+    night = "night"
+    total = "total"
+    person = "person"
 
 
 # --- base -----------------------------------------------------------------------------------
@@ -235,7 +331,98 @@ class HotelPayload(_Model):
     diagnostics: Diagnostics
 
 
-# --- transport wrapper: TripSuggestions -----------------------------------------------------
+# --- storage: neutral ResultItem + per-domain Firestore docs --------------------------------
+#
+# Tripper's own, per-domain storage shapes (``spec/schema.md`` -> Firestore data model). Each
+# agent's adapter maps its payload to neutral ``ResultItem`` docs so one save seam writes them and
+# the FE list is domain-agnostic. These model the durable *content* of each doc; the lease/claim
+# reliability fields (``startedAt`` / ``leaseExpiresAt`` / ``attempts`` / ``maxAttempts`` /
+# ``lastError``) and server timestamps (``createdAt`` / ``updatedAt``) are written imperatively by
+# the run machinery (``tripper.jobs``, ``spec/flows.md``), as they are for the M1 job doc.
+
+
+class Price(_Model):
+    amount: float
+    per: PricePer
+    currency: str
+
+
+class ResultItem(_Model):
+    """The neutral, rendering-ready suggestion shape shared by all domains (``spec/schema.md``).
+
+    Domain-specific fields the neutral shape does not cover live in the opaque ``detail`` blob that
+    the domain's own renderer reads. This is also what ``SelectedDoc.snapshot`` copies, so a
+    selection renders with the same renderer as a suggestion.
+    """
+
+    title: str
+    subtitle: str | None = None
+    score: float | None = Field(default=None, ge=0, le=1)  # comparable within a domain
+    price: Price | None = None
+    rating: float | None = None
+    image_url: str | None = None
+    url: str | None = None
+    badges: list[str] = Field(default_factory=list)  # short chips (amenities, refundable, ...)
+    rationale: str | None = None
+    detail: dict[str, Any] = Field(default_factory=dict)  # domain-specific passthrough
+
+
+class DomainDoc(_Model):
+    """``.../domains/{domain}`` durable per-domain state (backend-owned, ``spec/access.md``).
+
+    Its ``onCreate`` is the round-1 search trigger; the reliability fields live alongside these on
+    the stored doc but are managed by the claim machinery (see module note).
+    """
+
+    domain: Domain
+    agentStatus: DomainAgentStatus = DomainAgentStatus.pending
+    selectionMode: SelectionMode
+    selectionStatus: SelectionStatus = SelectionStatus.none
+    round: int = 0  # highest completed round (0 = none yet, 1 = initial search)
+    warnings: list[str] = Field(default_factory=list)
+    diagnostics: dict[str, Any] = Field(default_factory=dict)  # latest run, from the agent
+    counts: dict[str, Any] = Field(default_factory=dict)
+
+
+class SuggestedDoc(ResultItem):
+    """``.../suggested/{suggestionId}`` one candidate: a :class:`ResultItem` plus sort/group keys.
+
+    Backend-written except ``feedback`` (the only client-writable field, ``spec/access.md``). The
+    ``suggestionId`` is the agent's stable item id (hotel: ``Pick.id``, ``spec/agents.md``).
+    """
+
+    lens: LensName | None = None  # hotel grouping; null for domains without lenses
+    rank: int
+    round: int
+    dismissed: bool = False  # superseded / removed from view without deleting
+    feedback: Feedback | None = None  # client-written; the wanted/unwanted input a refine reads
+
+
+class SelectedDoc(_Model):
+    """``.../selected/{itemId}`` a chosen item (client-written, ``spec/access.md``)."""
+
+    suggestionId: str  # the suggested doc it came from (back-reference)
+    snapshot: ResultItem  # copy at selection time, so the choice survives the agent re-running
+    meta: dict[str, Any] = Field(default_factory=dict)  # per-agent selection metadata
+    status: SelectedStatus = SelectedStatus.selected
+
+
+class RefinementDoc(_Model):
+    """``.../refinements/{refineId}`` a refine request + its run (``spec/schema.md``).
+
+    Client-creates ``{ round, status: "pending" }``; the backend transitions the run (reliability
+    fields managed by the claim machinery, see module note).
+    """
+
+    round: int
+    status: RefinementStatus = RefinementStatus.pending
+
+
+# --- legacy M1 transport wrapper: TripSuggestions (superseded, spec/archive.md) --------------
+#
+# The single-document ``results`` model. Superseded by the per-domain storage docs above; still
+# imported by the M1 orchestrator (``tripper.orchestrator`` / ``tripper.jobs``) until the fan-out
+# batch replaces that path, at which point this wrapper is removed.
 
 
 class TripError(_Model):

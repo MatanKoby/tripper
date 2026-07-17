@@ -4,8 +4,13 @@ import pytest
 from pydantic import ValidationError
 
 from tripper.contract import (
+    DomainDoc,
     Guests,
     HotelPayload,
+    RefinementDoc,
+    ResultItem,
+    SelectedDoc,
+    SuggestedDoc,
     TripInput,
     TripSuggestions,
 )
@@ -213,3 +218,96 @@ def test_error_suggestions_reject_a_hotel_payload() -> None:
         TripSuggestions.from_dict(
             {"status": "error", "error": {"message": "x", "kind": "Y"}, "hotel": FULL_HOTEL_PAYLOAD}
         )
+
+
+# --- M2 storage: neutral ResultItem + per-domain Firestore docs (spec/schema.md) ------------
+
+# A fully-populated neutral ResultItem as stored (price object, badges, opaque detail).
+FULL_RESULT_ITEM: dict = {
+    "title": "Hotel Alfama View",
+    "subtitle": "Alfama",
+    "score": 0.91,
+    "price": {"amount": 140.0, "per": "night", "currency": "EUR"},
+    "rating": 9.1,
+    "image_url": "https://img.example/alfama.jpg",
+    "url": "https://book.example/alfama",
+    "badges": ["wifi", "breakfast", "refundable"],
+    "rationale": "great value near the castle",
+    "detail": {"star_rating": 4, "why": {"price": 0.8}, "distance_to_desired_km": 0.4},
+}
+
+
+def test_result_item_round_trips() -> None:
+    assert ResultItem.from_dict(FULL_RESULT_ITEM).to_dict() == FULL_RESULT_ITEM
+
+
+def test_suggested_doc_round_trips() -> None:
+    # A suggested doc is a flat ResultItem plus the sort/group + feedback keys.
+    doc = {**FULL_RESULT_ITEM, "lens": "hidden_gems", "rank": 2, "round": 1,
+           "dismissed": False, "feedback": "liked"}
+    assert SuggestedDoc.from_dict(doc).to_dict() == doc
+
+
+def test_suggested_doc_defaults_dismissed_and_unmarked() -> None:
+    doc = SuggestedDoc.from_dict({"title": "X", "rank": 1, "round": 1})
+    assert doc.dismissed is False
+    assert doc.feedback is None
+    assert doc.lens is None
+
+
+def test_domain_doc_defaults_match_a_fresh_fan_out() -> None:
+    doc = DomainDoc.from_dict({"domain": "accommodations", "selectionMode": "single"})
+    assert doc.to_dict() == {
+        "domain": "accommodations",
+        "agentStatus": "pending",
+        "selectionMode": "single",
+        "selectionStatus": "none",
+        "round": 0,
+        "warnings": [],
+        "diagnostics": {},
+        "counts": {},
+    }
+
+
+def test_selected_doc_round_trips_with_snapshot() -> None:
+    doc = {
+        "suggestionId": "hf-abc123",
+        "snapshot": FULL_RESULT_ITEM,
+        "meta": {"nights": 4},
+        "status": "selected",
+    }
+    assert SelectedDoc.from_dict(doc).to_dict() == doc
+
+
+def test_refinement_doc_defaults_to_pending() -> None:
+    assert RefinementDoc.from_dict({"round": 2}).to_dict() == {"round": 2, "status": "pending"}
+
+
+def test_result_item_score_out_of_range_rejected() -> None:
+    with pytest.raises(ValidationError):
+        ResultItem.from_dict({"title": "X", "score": 1.5})
+
+
+def test_price_rejects_an_unknown_per_basis() -> None:
+    with pytest.raises(ValidationError):
+        ResultItem.from_dict(
+            {"title": "X", "price": {"amount": 10.0, "per": "decade", "currency": "EUR"}}
+        )
+
+
+def test_suggested_doc_rejects_an_unknown_feedback_value() -> None:
+    with pytest.raises(ValidationError):
+        SuggestedDoc.from_dict({"title": "X", "rank": 1, "round": 1, "feedback": "meh"})
+
+
+@pytest.mark.parametrize(
+    ("model", "doc"),
+    [
+        (ResultItem, {"title": "X", "surprise": 1}),
+        (DomainDoc, {"domain": "accommodations", "selectionMode": "single", "surprise": 1}),
+        (SelectedDoc, {"suggestionId": "a", "snapshot": {"title": "X"}, "surprise": 1}),
+    ],
+)
+def test_storage_docs_reject_unknown_fields(model: type, doc: dict) -> None:
+    with pytest.raises(ValidationError):
+        model.from_dict(doc)

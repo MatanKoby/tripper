@@ -18,14 +18,41 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
-    // Trip jobs live under the owner's own path; isolation is the {uid} segment.
+    // Trip jobs live under the owner's own path; isolation is the {uid} segment,
+    // inherited by every nested rule below (spec/access.md, spec/schema.md).
     match /users/{uid}/trips/{tripId} {
       allow read:   if request.auth.uid == uid;
       allow create: if request.auth.uid == uid
                     && request.resource.data.status == "pending"
-                    && !("results" in request.resource.data)
                     && accessOk();
-      allow update, delete: if false;
+      allow update, delete: if false;   // backend sets active / error via the Admin SDK
+
+      // Per-domain subtree: the backend (Admin SDK) owns the fan-out + all run state.
+      match /domains/{domain} {
+        allow read:  if request.auth.uid == uid;
+        allow write: if false;          // fan-out + run state are backend-only
+
+        match /suggested/{suggestionId} {
+          allow read: if request.auth.uid == uid;
+          // the client may change ONLY the feedback mark; every other field is backend-owned
+          allow update: if request.auth.uid == uid
+                        && request.resource.data.diff(resource.data)
+                             .affectedKeys().hasOnly(["feedback"]);
+          allow create, delete: if false;
+        }
+
+        match /selected/{itemId} {     // the user's own choices, owned outright
+          allow read, create, update, delete: if request.auth.uid == uid;
+        }
+
+        match /refinements/{refineId} {
+          allow read:   if request.auth.uid == uid;
+          allow create: if request.auth.uid == uid
+                        && request.resource.data.status == "pending"
+                        && accessOk();   // a refine is paid work, so it is gated like a trip
+          allow update, delete: if false;   // backend transitions the run
+        }
+      }
     }
   }
 }

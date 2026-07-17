@@ -51,6 +51,25 @@ async function seedTrip(path, data = pendingTrip()) {
   });
 }
 
+// Seed any doc directly, bypassing rules (the backend owns the domains subtree).
+async function seedDoc(path, data) {
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), path), data);
+  });
+}
+
+// Paths under alice's trip subtree (spec/schema.md).
+const DOMAIN = 'users/alice/trips/t1/domains/accommodations';
+const SUGGESTED = `${DOMAIN}/suggested/s1`;
+const SELECTED = `${DOMAIN}/selected/sel1`;
+const REFINEMENT = `${DOMAIN}/refinements/r1`;
+
+// A backend-written suggested doc (client may touch only its feedback mark).
+function suggestedDoc(extra = {}) {
+  return { title: 'Hotel X', score: 0.9, rank: 1, round: 1, dismissed: false,
+    feedback: null, ...extra };
+}
+
 // A verified user whose (mixed-case) email lowercases onto the allowlist.
 function allowed() {
   return testEnv.authenticatedContext('alice', {
@@ -129,13 +148,6 @@ test('create with a non-pending status is denied', async () => {
   );
 });
 
-test('create carrying results is denied', async () => {
-  const db = allowed().firestore();
-  await assertFails(
-    setDoc(doc(db, 'users/alice/trips/t1'), pendingTrip({ results: {} })),
-  );
-});
-
 test('cannot create under another user path', async () => {
   const db = allowed().firestore(); // alice
   await assertFails(setDoc(doc(db, 'users/bob/trips/t1'), pendingTrip()));
@@ -181,4 +193,113 @@ test('client cannot write config/access', async () => {
   await assertFails(
     setDoc(doc(db, 'config/access'), { mode: 'open', allowedEmails: [] }),
   );
+});
+
+// --- domains: backend-owned run state --------------------------------------
+
+test('owner can read own domain doc', async () => {
+  await seedDoc(DOMAIN, { domain: 'accommodations', agentStatus: 'idle' });
+  const db = allowed().firestore();
+  await assertSucceeds(getDoc(doc(db, DOMAIN)));
+});
+
+test('client cannot create a domain doc (fan-out is backend-only)', async () => {
+  const db = allowed().firestore();
+  await assertFails(setDoc(doc(db, DOMAIN), { domain: 'accommodations' }));
+});
+
+test('client cannot update a domain doc', async () => {
+  await seedDoc(DOMAIN, { domain: 'accommodations', agentStatus: 'running' });
+  const db = allowed().firestore();
+  await assertFails(updateDoc(doc(db, DOMAIN), { agentStatus: 'idle' }));
+});
+
+// --- suggested: read + feedback-only patch ---------------------------------
+
+test('owner can read own suggested doc', async () => {
+  await seedDoc(SUGGESTED, suggestedDoc());
+  const db = allowed().firestore();
+  await assertSucceeds(getDoc(doc(db, SUGGESTED)));
+});
+
+test('client can patch only the feedback mark', async () => {
+  await seedDoc(SUGGESTED, suggestedDoc());
+  const db = allowed().firestore();
+  await assertSucceeds(updateDoc(doc(db, SUGGESTED), { feedback: 'liked' }));
+});
+
+test('client cannot change a non-feedback field on a suggested doc', async () => {
+  await seedDoc(SUGGESTED, suggestedDoc());
+  const db = allowed().firestore();
+  await assertFails(updateDoc(doc(db, SUGGESTED), { score: 0.1 }));
+});
+
+test('client cannot change feedback alongside another field', async () => {
+  await seedDoc(SUGGESTED, suggestedDoc());
+  const db = allowed().firestore();
+  await assertFails(
+    updateDoc(doc(db, SUGGESTED), { feedback: 'disliked', dismissed: true }),
+  );
+});
+
+test('client cannot create a suggested doc', async () => {
+  const db = allowed().firestore();
+  await assertFails(setDoc(doc(db, SUGGESTED), suggestedDoc()));
+});
+
+test('client cannot delete a suggested doc', async () => {
+  await seedDoc(SUGGESTED, suggestedDoc());
+  const db = allowed().firestore();
+  await assertFails(deleteDoc(doc(db, SUGGESTED)));
+});
+
+// --- selected: the client owns its own choices -----------------------------
+
+test('owner can create then delete own selected doc', async () => {
+  const db = allowed().firestore();
+  const ref = doc(db, SELECTED);
+  await assertSucceeds(
+    setDoc(ref, { suggestionId: 's1', snapshot: { title: 'Hotel X' }, status: 'selected' }),
+  );
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test('cannot create a selected doc under another user path', async () => {
+  const db = notAllowed().firestore(); // mallory
+  await assertFails(
+    setDoc(doc(db, 'users/alice/trips/t1/domains/accommodations/selected/x'),
+      { suggestionId: 's1', snapshot: {}, status: 'selected' }),
+  );
+});
+
+// --- refinements: accessOk()-gated create, backend transitions -------------
+
+test('allowlisted owner can create a pending refinement', async () => {
+  const db = allowed().firestore();
+  await assertSucceeds(setDoc(doc(db, REFINEMENT), { round: 2, status: 'pending' }));
+});
+
+test('refinement create with a non-pending status is denied', async () => {
+  const db = allowed().firestore();
+  await assertFails(setDoc(doc(db, REFINEMENT), { round: 2, status: 'running' }));
+});
+
+test('non-allowlisted user cannot create a refinement', async () => {
+  const db = notAllowed().firestore(); // mallory, own path
+  await assertFails(
+    setDoc(doc(db, 'users/mallory/trips/t1/domains/accommodations/refinements/r1'),
+      { round: 2, status: 'pending' }),
+  );
+});
+
+test('client cannot update a refinement (backend transitions the run)', async () => {
+  await seedDoc(REFINEMENT, { round: 2, status: 'pending' });
+  const db = allowed().firestore();
+  await assertFails(updateDoc(doc(db, REFINEMENT), { status: 'done' }));
+});
+
+test('owner can read own refinement', async () => {
+  await seedDoc(REFINEMENT, { round: 2, status: 'pending' });
+  const db = allowed().firestore();
+  await assertSucceeds(getDoc(doc(db, REFINEMENT)));
 });

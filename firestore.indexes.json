@@ -7,6 +7,32 @@
         { "fieldPath": "status", "order": "ASCENDING" },
         { "fieldPath": "leaseExpiresAt", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "domains",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "agentStatus", "order": "ASCENDING" },
+        { "fieldPath": "leaseExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "refinements",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "leaseExpiresAt", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "suggested",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "dismissed", "order": "ASCENDING" },
+        { "fieldPath": "lens", "order": "ASCENDING" },
+        { "fieldPath": "score", "order": "DESCENDING" },
+        { "fieldPath": "round", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
