@@ -5,6 +5,11 @@ These carry the reliability machinery from ``spec/flows.md`` and operate directl
 ``tripper.orchestrator``. Keeping them here (transport-free, no agent knowledge) lets the sweeper
 (Batch 5) reuse the same claim/state vocabulary.
 
+Both run kinds share one claim: a **search** run claims its ``domains/{domain}`` doc (its lifecycle
+field is ``agentStatus``), a **refine** run its ``refinements/{id}`` doc (``status``); the claim's
+``status_field`` selects which. On success a search writes its candidates into ``suggested/*`` and
+drives the domain doc to ``agentStatus: "idle"`` (:func:`write_search_result`).
+
 Timestamps: ``leaseExpiresAt`` and ``startedAt`` are computed from a ``clock`` (injectable for
 tests, UTC-aware); ``updatedAt`` uses the Firestore server clock.
 """
@@ -21,7 +26,8 @@ from typing import Any
 
 from firebase_admin import firestore
 
-from tripper.contract import TripError, TripSuggestions
+from tripper.agents.base import DomainSearchResult
+from tripper.contract import SuggestedDoc, TripError
 
 logger = logging.getLogger("tripper.jobs")
 
@@ -64,16 +70,19 @@ def claim_job(
     db: Any,
     doc_ref: Any,
     *,
+    status_field: str = "status",
     clock: Clock = utcnow,
     lease_budget: timedelta = LEASE_BUDGET,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
 ) -> ClaimOutcome:
-    """Idempotently claim the job in a transaction (``spec/flows.md`` under *Idempotent claim*).
+    """Idempotently claim the run in a transaction (``spec/flows.md`` under *Idempotent claim*).
 
-    Proceeds only if the doc is ``pending`` OR (``running`` AND its lease has expired). On success
-    it sets ``status="running"``, ``startedAt``, ``attempts += 1`` and a fresh ``leaseExpiresAt``,
-    seeding ``maxAttempts`` on first claim. A duplicate delivery whose lease is still valid is
-    reported as not claimed, so the agent never double-runs.
+    ``status_field`` is the doc's lifecycle field: ``"status"`` for a trip/refinement doc,
+    ``"agentStatus"`` for a ``domains/{domain}`` doc. Proceeds only if that field is ``pending`` OR
+    (``running`` AND its lease has expired). On success it sets the field to ``"running"``,
+    ``startedAt``, ``attempts += 1``, a fresh ``leaseExpiresAt``, seeding ``maxAttempts`` on first
+    claim. A duplicate delivery whose lease is still valid is reported as not claimed, so the agent
+    never double-runs.
     """
     now = clock()
 
@@ -83,7 +92,7 @@ def claim_job(
         if not getattr(snapshot, "exists", False):
             return ClaimOutcome(claimed=False, reason="missing")
         data = snapshot.to_dict() or {}
-        status = data.get("status")
+        status = data.get(status_field)
         claimable = status == "pending" or (
             status == "running" and _lease_expired(data.get("leaseExpiresAt"), now)
         )
@@ -92,7 +101,7 @@ def claim_job(
 
         attempts = int(data.get("attempts") or 0) + 1
         update: dict[str, Any] = {
-            "status": "running",
+            status_field: "running",
             "startedAt": now,
             "attempts": attempts,
             "leaseExpiresAt": now + lease_budget,
@@ -146,24 +155,50 @@ def lease_heartbeat(
         thread.join(timeout=interval + 5.0)
 
 
-def write_done(doc_ref: Any, results: TripSuggestions) -> None:
-    """Write the terminal success state: ``status="done"`` with schema-valid ``results``."""
-    doc_ref.update(
+def write_search_result(domain_ref: Any, result: DomainSearchResult, *, round: int = 1) -> None:
+    """Write a completed search run to its ``domains/{domain}`` subtree (``spec/flows.md``).
+
+    Each :class:`~tripper.agents.base.Suggestion` becomes a ``suggested/{id}`` doc (a
+    :class:`~tripper.contract.SuggestedDoc`: the neutral item + ``lens`` / ``rank`` / ``round`` sort
+    keys), written **first**; only then is the domain doc driven to ``agentStatus: "idle"`` with the
+    run's ``round`` / ``diagnostics`` / ``warnings`` / ``counts``. So an ``idle`` domain
+    has its candidates present. Re-running a round overwrites the same ids, so a reclaim after
+    a partial write is idempotent.
+    """
+    suggested = domain_ref.collection("suggested")
+    for rank, suggestion in enumerate(result.suggestions):
+        suggested.document(suggestion.id).set(_suggested_payload(suggestion, rank, round))
+    domain_ref.update(
         {
-            "status": "done",
-            "results": results.to_dict(),
+            "agentStatus": "idle",
+            "round": round,
+            "diagnostics": result.diagnostics,
+            "warnings": result.warnings,
+            "counts": result.counts,
             "updatedAt": firestore.SERVER_TIMESTAMP,
         }
     )
 
 
-def write_error(doc_ref: Any, error: TripError) -> None:
-    """Write the terminal failure state: ``status="error"`` with ``error`` and ``lastError``."""
-    payload = error.to_dict()
+def _suggested_payload(suggestion: Any, rank: int, round: int) -> dict[str, Any]:
+    """A ``SuggestedDoc`` dict for one candidate: the neutral item + its sort/group keys."""
+    lens = suggestion.lens.value if suggestion.lens is not None else None
+    doc = SuggestedDoc.model_validate(
+        {**suggestion.item.to_dict(), "lens": lens, "rank": rank, "round": round}
+    ).to_dict()
+    doc["createdAt"] = firestore.SERVER_TIMESTAMP
+    return doc
+
+
+def write_run_error(doc_ref: Any, error: TripError, *, status_field: str = "status") -> None:
+    """Write a run's terminal failure: its lifecycle field to ``"error"`` + ``lastError``.
+
+    ``status_field`` is ``"agentStatus"`` for a domain search, ``"status"`` for a refinement.
+    """
     doc_ref.update(
         {
-            "status": "error",
-            "error": payload,
+            status_field: "error",
+            "error": error.to_dict(),
             "lastError": error.message,
             "updatedAt": firestore.SERVER_TIMESTAMP,
         }

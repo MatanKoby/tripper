@@ -1,21 +1,22 @@
-"""Scheduled recovery of jobs stranded in ``running`` (``spec/flows.md`` under *Sweeper*).
+"""Scheduled recovery of search runs stranded in ``running`` (``spec/flows.md`` under *Sweeper*).
 
 A hard crash (OOM, timeout kill, deploy mid-flight) never runs the orchestrator's except block, so
-the job doc is left in ``running`` with a lease that will simply expire. This sweep is the backstop
-for exactly that case: it finds every job that is still ``running`` after its ``leaseExpiresAt`` has
-passed and either **re-queues** it (``status="pending"``) for another attempt, or, once
-``maxAttempts`` is spent, drives it to a terminal ``status="error"`` so a poison job stops looping
-and burning spend.
+the ``domains/{domain}`` doc is left with ``agentStatus="running"`` and a lease that will simply
+expire. This sweep is the backstop for exactly that case: it finds every domain doc still
+``running`` after its ``leaseExpiresAt`` has passed and either **re-queues** it
+(``agentStatus="pending"``, which re-fires the search) for another attempt, or, once ``maxAttempts``
+is spent, drives it to a terminal ``agentStatus="error"`` so a poison run stops looping and burning
+spend.
 
-It operates through the Admin SDK on job docs only (never the orchestrator internals) and reuses
+It operates through the Admin SDK on domain docs only (never the orchestrator internals) and reuses
 the claim/state vocabulary in ``tripper.jobs``: the same ``_lease_expired`` predicate as
 ``claim_job``, the same ``DEFAULT_MAX_ATTEMPTS`` fallback, the same ``TripError`` terminal shape as
-``write_error``. The per-doc mutation runs in a transaction that re-checks the ``running`` +
-expired-lease guard, so a job the orchestrator reclaims between the query and the write is left
-alone rather than clobbered.
+``write_run_error``. The per-doc mutation runs in a transaction that re-checks the ``running`` +
+expired-lease guard, so a run the orchestrator reclaims between the query and the write is left
+alone rather than clobbered. (Refinement docs join the sweep in Batch 13.)
 
-The query (``status ==`` equality plus a ``leaseExpiresAt`` range, collection-group scope) needs the
-composite index in ``firestore.indexes.json``.
+The query (``agentStatus ==`` plus a ``leaseExpiresAt`` range, collection-group scope) needs
+the composite index in ``firestore.indexes.json``.
 """
 
 from __future__ import annotations
@@ -33,8 +34,10 @@ from tripper.jobs import DEFAULT_MAX_ATTEMPTS, Clock, _lease_expired, utcnow
 
 logger = logging.getLogger("tripper.sweeper")
 
-#: Firestore token for the collection every job doc lives in (``users/{uid}/trips/{tripId}``).
-TRIPS_COLLECTION = "trips"
+#: Collection group of the per-domain search-run docs (``.../trips/{tripId}/domains/{domain}``).
+DOMAINS_COLLECTION = "domains"
+#: The domain doc's lifecycle field the sweep reaps on (``spec/schema.md`` → Domain).
+RUN_STATUS_FIELD = "agentStatus"
 
 
 @dataclass(frozen=True)
@@ -62,8 +65,8 @@ def sweep(
     """
     now = clock()
     query = (
-        db.collection_group(TRIPS_COLLECTION)
-        .where(filter=FieldFilter("status", "==", "running"))
+        db.collection_group(DOMAINS_COLLECTION)
+        .where(filter=FieldFilter(RUN_STATUS_FIELD, "==", "running"))
         .where(filter=FieldFilter("leaseExpiresAt", "<", now))
     )
     # Materialize the refs before mutating, so we are not writing while the stream is still open.
@@ -110,14 +113,16 @@ def _reap_one(db: Any, doc_ref: Any, *, now: datetime, max_attempts: int) -> str
         if not getattr(snapshot, "exists", False):
             return "skipped"
         data = snapshot.to_dict() or {}
-        if data.get("status") != "running" or not _lease_expired(data.get("leaseExpiresAt"), now):
+        if data.get(RUN_STATUS_FIELD) != "running" or not _lease_expired(
+            data.get("leaseExpiresAt"), now
+        ):
             return "skipped"
 
         attempts = int(data.get("attempts") or 0)
         limit = int(data.get("maxAttempts") or max_attempts)
         if attempts < limit:
             transaction.update(
-                doc_ref, {"status": "pending", "updatedAt": firestore.SERVER_TIMESTAMP}
+                doc_ref, {RUN_STATUS_FIELD: "pending", "updatedAt": firestore.SERVER_TIMESTAMP}
             )
             return "requeued"
 
@@ -128,7 +133,7 @@ def _reap_one(db: Any, doc_ref: Any, *, now: datetime, max_attempts: int) -> str
         transaction.update(
             doc_ref,
             {
-                "status": "error",
+                RUN_STATUS_FIELD: "error",
                 "error": error.to_dict(),
                 "lastError": error.message,
                 "updatedAt": firestore.SERVER_TIMESTAMP,

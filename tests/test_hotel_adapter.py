@@ -27,17 +27,25 @@ from hotel_finder.contracts import (  # noqa: E402 - after importorskip
 )
 from hotel_finder.models import Amenity  # noqa: E402
 
+from tripper.agents.base import DomainSearchResult  # noqa: E402
 from tripper.agents.hotel_adapter import (  # noqa: E402
     HotelAdapter,
     _agent_settings,
     _to_payload,
     _to_request,
+    _to_result,
 )
 from tripper.config import Settings  # noqa: E402
-from tripper.contract import AgentStatus, HotelPayload, TripInput  # noqa: E402
+from tripper.contract import (  # noqa: E402
+    AgentStatus,
+    Domain,
+    HotelPayload,
+    SelectionMode,
+    TripInput,
+)
 from tripper.contract import Amenity as TripperAmenity  # noqa: E402
 from tripper.contract import LensName as TripperLens  # noqa: E402
-from tripper.orchestrator import run_job  # noqa: E402
+from tripper.orchestrator import fan_out, run_search  # noqa: E402
 
 BASE_INPUT: dict = {
     "place": {"city": "Barcelona", "country_code": "ES", "desired_area": "Eixample"},
@@ -57,8 +65,10 @@ def _settings() -> Settings:
 # --- request mapping --------------------------------------------------------------------------
 
 
-def test_name_is_the_hotel_slot() -> None:
-    assert HotelAdapter(_settings()).name == "hotel"
+def test_domain_and_selection_mode() -> None:
+    adapter = HotelAdapter(_settings())
+    assert adapter.domain is Domain.accommodations
+    assert adapter.selection_mode is SelectionMode.single
 
 
 def test_guests_expand_into_a_single_room_when_rooms_is_null() -> None:
@@ -172,6 +182,33 @@ def test_response_maps_to_payload_and_drops_request_id() -> None:
     assert "request_id" not in payload.to_dict()
 
 
+def test_payload_maps_to_neutral_suggestions() -> None:
+    result = _to_result(_to_payload(_sample_response()))
+
+    assert isinstance(result, DomainSearchResult)
+    assert len(result.suggestions) == 1
+    suggestion = result.suggestions[0]
+    assert suggestion.id == "stratified_best-0"  # "{lens}-{index}" until upstream Pick.id
+    assert suggestion.lens is TripperLens.stratified_best
+
+    item = suggestion.item
+    assert item.title == "Casa Eixample"
+    assert item.score == 0.82
+    assert item.rating == 8.7
+    # cheapest offer -> per-night price
+    assert item.price.amount == 88.0
+    assert item.price.per.value == "night"
+    assert item.price.currency == "EUR"
+    assert "refundable" in item.badges  # the offer is refundable
+    assert {b for b in item.badges if b != "refundable"} == {"wifi", "ac"}
+    assert item.detail["star_rating"] == 4  # hotel-specific fields land in detail
+
+    assert result.counts == {"total": 1, "per_lens": {"stratified_best": 1}}
+    assert result.warnings == ["provider mock partial"]
+    assert result.diagnostics["scorer"] == "heuristic"
+    assert result.diagnostics["agent_status"] == "degraded"
+
+
 # --- settings ---------------------------------------------------------------------------------
 
 
@@ -187,29 +224,34 @@ def test_agent_settings_built_from_tripper_config() -> None:
 # --- full run (mock provider + heuristic scorer) ----------------------------------------------
 
 
-def test_run_returns_a_valid_populated_payload() -> None:
-    payload = HotelAdapter(_settings()).run(_trip())
+def test_run_returns_a_neutral_result() -> None:
+    result = HotelAdapter(_settings()).run(_trip())
 
-    assert isinstance(payload, HotelPayload)
-    assert payload.agent_status in set(AgentStatus)
-    assert any(payload.lenses.values()), "the mock provider should yield at least one pick"
-    # Every pick already satisfies the tripper contract (HotelPayload validated it on construction).
-    a_pick = next(pick for picks in payload.lenses.values() for pick in picks)
-    assert a_pick.name and 0.0 <= a_pick.score <= 1.0
-
-
-# --- orchestrator integration (emulator-backed; skips without one) ----------------------------
+    assert isinstance(result, DomainSearchResult)
+    assert result.suggestions, "the mock provider should yield at least one suggestion"
+    suggestion = result.suggestions[0]
+    assert suggestion.id
+    assert suggestion.item.title
+    assert suggestion.item.score is None or 0.0 <= suggestion.item.score <= 1.0
 
 
-def test_orchestrator_produces_trip_suggestions_hotel(db) -> None:
-    ref = db.collection("users").document("u1").collection("trips").document()
-    ref.set({"input": BASE_INPUT, "status": "pending", "attempts": 0})
+# --- fan-out + search integration (emulator-backed; skips without one) -------------------------
 
-    run_job(db, ref, agents=[HotelAdapter(_settings())])
 
-    data = ref.get().to_dict()
-    assert data["status"] == "done"
-    assert data["results"]["status"] == "ok"
-    hotel = data["results"]["hotel"]
-    assert hotel is not None
-    assert any(hotel["lenses"].values()), "orchestrator should carry the hotel picks through"
+def test_fan_out_and_search_populate_accommodations(db) -> None:
+    trip_ref = db.collection("users").document("u1").collection("trips").document()
+    trip_ref.set({"input": BASE_INPUT, "status": "pending"})
+    adapter = HotelAdapter(_settings())
+
+    fan_out(db, trip_ref, agents=[adapter])
+    domain_ref = trip_ref.collection("domains").document("accommodations")
+    run_search(db, domain_ref, agents_by_domain={"accommodations": adapter})
+
+    domain = domain_ref.get().to_dict()
+    assert domain["agentStatus"] == "idle"
+    assert domain["round"] == 1
+    suggested = list(domain_ref.collection("suggested").stream())
+    assert suggested, "search should write at least one suggested candidate"
+    first = suggested[0].to_dict()
+    assert first["title"]
+    assert first["round"] == 1
