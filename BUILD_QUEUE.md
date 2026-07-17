@@ -18,43 +18,75 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 ## Un-done batches
 
-> **Milestone M2 (current):** the per-domain data model + the hotel **feedback / refine loop**, built
-> accommodations-first (`roadmap.md`, `schema.md`, `flows.md`). It **supersedes** the M1 single-doc
-> `results` model (`archive.md`), so Batches 12 and 14 rebuild the accommodations vertical on the new
-> schema. Activities / flights integration comes *after* this milestone (`roadmap.md`), not yet
-> queued. Suggested order: **(12, 14 in parallel) → 13** (13 gated on upstream; 11 done).
+> **Milestone M2 (current):** the per-domain data model + backend fan-out, with **all three domains
+> integrated** — accommodations rebuilt on the new model, and **flights** + **activities** vendored
+> and wired in (`roadmap.md`, `schema.md`, `flows.md`, `agents.md`). The FE renders each domain as
+> **raw JSON per container**; the **feedback / refine loop** lands last. Supersedes the M1 single-doc
+> `results` model (`archive.md`). Suggested order: **12 → 15 → 14 → 13** (12 is the domain-general
+> foundation; 15 vendors the two new agents; 13's *hotel* refine is gated on upstream `refine_sync`
+> while flights/activities refine is not; 11 done).
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
 
-### Batch 12 — Backend fan-out & per-domain search run  (dep: 11)
+### Batch 12 — Backend fan-out & per-domain search run (domain-general)  (dep: 11)
 
-- Trip `onCreate` → **fan-out**: set trip `active`, create a `domains/{domain}` doc per active agent
-  (M2: accommodations only). (`flows.md`)
+- Trip `onCreate` → **fan-out**: set trip `active`, create a `domains/{domain}` doc per **active**
+  agent. The backend owns the active set (`flows.md`); **accommodations is active now**, flights /
+  activities are activated in Batch 15, so this batch lands and stays green with one domain.
+- Generalize the **Agent seam** (`tripper/agents/base.py`): an adapter returns neutral `ResultItem`s
+  (+ domain meta: `diagnostics` / `warnings` / `counts`), **not** `HotelPayload`. The orchestrator
+  knows only the neutral shape (`schema.md`, `architecture.md`).
 - Domain-doc `onCreate` → **search run**: claim/lease the domain doc (reuse the `jobs.py` claim on the
-  new doc), run the hotel adapter, write round-1 `ResultItem` `suggested` docs, set `agentStatus:
-  idle`.
-- Hotel adapter emits `ResultItem` + `detail` and uses `Pick.id` as the suggestion id (`schema.md`,
-  `agents.md`).
+  new doc), run that domain's adapter, write round-1 `ResultItem` `suggested` docs, set `agentStatus:
+  idle`. **Replace** the M1 single-doc write path (`write_done` / `TripSuggestions`) with per-domain
+  `suggested` writes.
+- Re-map the **hotel adapter** onto `ResultItem` + `detail` (`Pick` → `ResultItem`, `Pick.id` the
+  suggestion id, the rest into `detail`; `schema.md`, `agents.md`).
 - Sweeper: `collectionGroup` over domain docs (`flows.md`). Replaces the M1 single-orchestrator path.
 
-### Batch 13 — Hotel feedback / refine loop (backend)  `[NOT READY]`  (dep: 11, 12)
+### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension  (dep: 12)
 
-Gated on the **upstream** hotel agent shipping `refine_sync` + stable `Pick.id`, and the submodule
-bump landing (bump gate, `agents.md`). Do not claim until the vendored agent exposes refine.
+- **Vendor** both as submodules under `vendor/agents/`: `flight-finder-agent` (import `flight_finder`,
+  entry `flight_finder.run`) and `travel-agent` (import `travel_agent`, entry
+  `travel_agent.ActivitiesAgent().handle`) — `agents.md`. Run the **submodule-bump gate** on each
+  (`compileall` + non-e2e tests + tripper's adapter/contract tests).
+- Extend `tripper/config.py`: per-agent env mappings that build each agent's `Settings`; add the
+  Nebius fields the new agents read that tripper lacks (`nebius_endpoint_id`, `nebius_api_key`,
+  `nebius_base_url`) as needed (`architecture.md`, `agents.md`).
+- **`flight_adapter.py`**: map `TripInput` (+ `origin`, `flight_budget_usd`) → `FlightRequest`, call
+  `flight_finder.run`, map `FlightResult` offers → `ResultItem` + `detail` (`schema.md`).
+- **`activities_adapter.py`**: map `TripInput` (+ `activities_budget_usd`, `interests`, `travel_style`,
+  `travelers` from `guests`) → the `start` request; drive `ActivitiesAgent().handle` `start`→`finish`
+  **statelessly** within the run (discard the instance); map `RecommendedActivity` → `ResultItem`,
+  `Itinerary` → domain `diagnostics` (`agents.md`, `schema.md`).
+- `TripInput` additions in `tripper/contract.py` + the `InterestGroup` / `TravelStyle` enums; register
+  all three agents in `build_active_agents` (`main.py`) so the fan-out activates all three.
+- Deps: add both packages to the deploy install; note the activities `langgraph` / `langchain` stack
+  is heavy for the Function image (`agents.md`).
 
-- Refinement-doc `onCreate` → **refine run**: claim/lease it, set the domain `running`, read the
-  `feedback` marks off `suggested`, call the hotel adapter's `refine`, **append** round-N `suggested`
-  tagged with `round`, mark the refinement `done`, domain back to `idle`. (`flows.md`)
-- Sweeper: extend the `collectionGroup` sweep to refinement docs.
-
-### Batch 14 — Frontend: per-domain read model, renderers, feedback, refine, selection  (dep: 11; renders 12's output)
+### Batch 14 — Frontend: per-domain read model, raw-JSON render & form  (dep: 12; renders 12 + 15 output)
 
 - Replace `web/src/useJob.ts`'s single-doc listener with a trip listener + per-domain `suggested`
   listeners (`flows.md`).
-- Accommodation renderer over `ResultItem` + `detail`: group by `lens`, hide `dismissed` (`ui.md`).
-- Like / dislike controls write `feedback`; a per-section **Refine** button (enabled only when the
-  domain is `idle`) creates a `refinements` doc (the refine only *runs* once Batch 13 + upstream land).
-- Selection writes a `selected` doc (accommodations single-select) and shows the chosen hotel.
-- Flights / Activities keep "coming soon" (`ui.md`).
+- Render **each** domain's `suggested` docs as **raw JSON** in its own container (flights /
+  accommodation / activities); drive each section's state from `domains/{domain}.agentStatus`
+  (`ui.md`).
+- Extend the trip-input form with the new `TripInput` fields — `origin`, `flight_budget_usd`,
+  `activities_budget_usd`, `interests` (the 8 `InterestGroup`s), `travel_style` — and the Quick-fill
+  presets (`schema.md`, `ui.md`).
+- Feedback / refine / selection controls are deferred with the refine loop (Batch 13).
+
+### Batch 13 — Feedback / refine loop (all domains)  (dep: 12, 15)
+
+- Refinement-doc `onCreate` → **refine run**: claim/lease it, set the domain `running`, read the
+  `feedback` marks off `suggested`, call the domain adapter's refine, **append** round-N `suggested`
+  tagged with `round`, mark the refinement `done`, domain back to `idle` (`flows.md`).
+- **Flights / activities refine** = re-run search with the feedback folded into the request; **no
+  upstream dependency** (`agents.md`). **Hotel refine** = the agent's `refine_sync` — `[NOT READY]`
+  until upstream ships `refine_sync` + stable `Pick.id` and the submodule bump lands (`agents.md`);
+  build the flights/activities + FE path first and guard the hotel branch until then.
+- FE: like / dislike controls write `feedback`; a per-section **Refine** button (enabled only when the
+  domain is `idle`) creates a `refinements` doc; selection writes a `selected` doc (`ui.md`).
+- Sweeper: extend the `collectionGroup` sweep to refinement docs.
