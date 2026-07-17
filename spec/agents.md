@@ -2,8 +2,14 @@
 
 ## Layout
 
-- Agents are public repos vendored as **git submodules under `vendor/agents/`** (M1:
-  `vendor/agents/hotel-finder-agent`).
+- Agents are public repos vendored as **git submodules under `vendor/agents/`**. One repo per
+  domain:
+  - **accommodations** — `hotel-finder-agent`: <https://github.com/MatanKoby/hotel-finder-agent>
+    (vendored at `vendor/agents/hotel-finder-agent`, M1).
+  - **flights** — `flight-finder-agent`: <https://github.com/rosenn88/flight-finder-agent>
+    (import `flight_finder`, sync entry `flight_finder.run`).
+  - **activities** — `travel-agent`: <https://github.com/hadar-grimberg/travel-agent>
+    (import `travel_agent`, sync entry `travel_agent.ActivitiesAgent().handle`).
 - Tripper reaches each agent only through its adapter (`architecture.md` under Agent contract +
   adapters). Agents expose a clean API; tripper does not wrap any CLI.
 
