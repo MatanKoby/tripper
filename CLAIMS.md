@@ -19,11 +19,91 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 13 — Feedback / refine loop (all domains)
 - Owner: claude
 - Started: 2026-07-18 12:23
+- Finished: 2026-07-18 13:49
+- Commit: 1f478a9
 
-## Completed
+**What shipped.** The wanted/unwanted feedback + refine loop across all domains (`spec/flows.md`,
+`spec/agents.md`, `spec/schema.md`, `spec/ui.md`), closing milestone **M2**. A create on a
+`refinements/{id}` doc fires a **refine run** that re-runs the domain's agent with the user's
+feedback folded in and appends the next round of `suggested`.
+
+- **`tripper/agents/base.py`** — the refine seam: `PriorCandidate` (a prior candidate + its
+  `feedback` mark + `lens`/`round`, read off `suggested`), `RefineNotSupported`, an
+  `Agent.supports_refine` flag (default `False`), and a default `Agent.refine(trip, prior)` that
+  raises the guard. So a domain with no refine path fails cleanly rather than crashing.
+- **`flight_adapter.py` / `activities_adapter.py`** — `supports_refine = True` + `refine()`.
+  Flights folds the marks into the **fare budget** (disliked prices cap it below the cheapest
+  disliked, liked prices floor it) and re-runs `run` (`_run` shared with search). Activities does a
+  **fresh stateless run** whose `interests` gains liked categories / drops disliked ones (mapped to
+  `InterestGroup`) and whose `notes` name the liked/disliked activities (`_drive` shared with
+  search). **Hotel stays guarded** (inherits the default `refine`) until upstream `refine_sync`
+  ships (`spec/roadmap.md`).
+- **`tripper/orchestrator.py`** — `run_refine`: claim the **refinement** doc (lifecycle field
+  `status`, vs the domain's `agentStatus`), read the current feedback off `suggested`, set the
+  domain `running` **with a fresh lease** and heartbeat **both** the refinement and the domain doc
+  (so the domains-sweep leaves a refine-busy domain alone), call `adapter.refine`, append the round,
+  dismiss the disliked prior candidates, then settle the domain → `idle` (round N+1) + the
+  refinement → `done`. On any failure it errors the refinement and **resets the domain to `idle`**
+  so a dead refine never strands it as "thinking". Helpers: `_load_prior_candidates`
+  (reconstructs the neutral `ResultItem` out of each stored doc, dropping run/sort extras),
+  `_next_round`, `_mark_domain_running`, `_fail_refine_safely`.
+- **`tripper/jobs.py`** — `write_refine_result`: append the round, dismiss the disliked, drive the
+  domain idle, mark the refinement done. Refine candidate doc ids are **round-qualified**
+  (`{agentId}::r{round}`) so an appended round never clobbers a prior one — necessary because both
+  the flight and activities agents reuse ids across runs (surfaced below).
+- **`tripper/sweeper.py`** — generalized to reap **two** collection groups: `domains` (on
+  `agentStatus`, as before) and `refinements` (on `status`), via `_sweep_group`. A terminally-failed
+  refinement also resets its still-`running` parent domain to `idle` (one transaction). `SweepReport`
+  gained `__add__` to sum the two group tallies. The `refinements` composite index already existed
+  (Batch 11).
+- **`main.py`** — a third create trigger, `refine` on
+  `users/{userId}/trips/{tripId}/domains/{domain}/refinements/{refineId}` → `run_refine`.
+- **Frontend** (`useJob.ts`, `DomainSection.tsx`, `types.ts`, `App.tsx`) — per-domain `selected` +
+  `refinements` listeners added to the existing trip/domain/suggested ones; three write actions:
+  `setFeedback` (patch **only** `feedback`, toggles off on re-click), `refine` (create a `pending`
+  refinements doc), `select`/`deselect` (write/remove a `selected` doc — single-select overwrites a
+  fixed `choice` slot, multi keys by suggestion id; the snapshot copies only the neutral
+  `ResultItem`). `DomainSection` renders, in the idle state, per-candidate Like/Dislike + Select
+  controls, a per-section **Refine** button (only reachable when the domain is idle), a selected
+  slot, and a refine-failed banner; **dismissed candidates are filtered out**; the raw-JSON dump is
+  kept alongside (M2 first pass). New `types.ts`: `RefinementStatus`, `Feedback`, `SelectedDoc`,
+  `RefinementDoc`.
+
+**No changes to `firestore.rules` / `firestore.indexes.json`** — Batch 11 already added the
+feedback-only `suggested` update rule, the `accessOk()`-gated `refinements` create, client-owned
+`selected` CRUD, and the `refinements` sweep index. The 30 rules unit tests still pass, confirming
+the FE writes exactly what the rules permit.
+
+**Verification.** `ruff check` clean; `pytest` **112 passed** (was 91) against the Firestore emulator
++ all three mock agents: +6 orchestrator `run_refine` (append/round-qualify/dismiss, feedback read,
+hotel-guard errors + domain reset, duplicate-delivery skip, unknown-domain error, two-round
+increment), +5 flight refine (budget fold cap/floor/noop + a tighter-budget re-run), +5 activities
+refine (interests/notes fold + drop-all + noop + a completed refined run), +5 sweeper refinements
+(requeue, terminal-error-resets-domain, idle-domain-untouched, live-lease-skip, mixed domain+refine
+pass), +1 hotel refine guard, and **+1 full emulator-backed end-to-end refine** with the real
+activities agent (search → dislike the culture picks → refine → round 2 appended under `::r2` ids,
+culture dismissed and absent from round 2, refinement `done`, domain `idle` at round 2). Frontend:
+`tsc --noEmit` + `vite build` clean. A true browser end-to-end (Google popup + live Firestore) is
+the documented manual step and was not run.
+
+**Decisions surfaced (not freelanced into a spec edit).** (1) **Round-qualified `suggested` doc
+ids** (`::r{round}` for refine rounds; round 1 keeps the plain agent id): `spec/schema.md` says the
+`suggestionId` *is* the agent's stable item id, but both new agents reuse ids across runs, so an
+appended round must not clobber the prior one; feedback still round-trips because the refine reads
+the actual stored doc ids. Worth a one-line schema note. (2) **Refine sets the domain `running` with
+a refreshed lease + a second heartbeat on the domain doc**, so the domains-sweep never reaps a
+refine-busy domain; on failure the domain is reset to `idle`. (3) **The sweeper resets a still-
+running parent domain to `idle`** when it terminally-errors a refinement — beyond the literal
+`flows.md` sweeper text, to avoid a stranded "thinking" domain. (4) **Single-select uses a fixed
+`choice` doc id** (multi keys by suggestion id) — one realization of `schema.md`'s "one doc for
+accommodations now; the shape already supports many". None conflict with the specs; all realize
+documented intent. Note the pre-existing limitation (Batch 5): a sweeper **re-queue** to `pending`
+resets state but does not re-fire the run (`onCreate` fires on create only) — unchanged here.
 
 ### Batch 14 — Frontend: per-domain read model, raw-JSON render & form
 - Owner: claude

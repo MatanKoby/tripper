@@ -10,6 +10,28 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 13 — Feedback / refine loop (all domains)
+Shipped the wanted/unwanted feedback + refine loop across all domains, closing milestone **M2**
+(`spec/flows.md`, `spec/agents.md`, `spec/schema.md`, `spec/ui.md`). Added the refine seam to
+`tripper/agents/base.py` (`PriorCandidate`, `RefineNotSupported`, `Agent.supports_refine`, a default
+`refine` that raises the guard); flights + activities implement `refine` (flights folds the marks
+into the fare budget and re-runs; activities does a fresh stateless run with liked/disliked folded
+into `interests` + `notes`), while **hotel stays guarded** until upstream `refine_sync`. A
+`refinements/{id}` `onCreate` fires `orchestrator.run_refine`: claim the refinement doc, read the
+feedback off `suggested`, set the domain `running` (fresh lease + a heartbeat on both the refinement
+and domain docs), call `adapter.refine`, **append** the round under round-qualified ids
+(`{agentId}::r{round}`, so it never clobbers a prior round), dismiss the disliked, settle the domain
+→ `idle` (round N+1) + the refinement → `done`, and reset the domain to `idle` on failure. The
+sweeper (`tripper/sweeper.py`) now reaps `refinements` (on `status`) as well as `domains`, resetting
+a still-running parent domain to `idle` on a terminal refinement error. The FE (`useJob.ts`,
+`DomainSection.tsx`, `types.ts`) adds `selected` + `refinements` listeners and the like/dislike,
+Refine (idle-gated), and select/deselect controls, filtering dismissed candidates. No
+rules/index changes (Batch 11 provisioned them); the 30 rules tests still pass. `ruff` clean,
+`pytest` 112 passed (incl. a full emulator-backed end-to-end refine with the real activities agent),
+`tsc`/`vite build` clean. Key commit `1f478a9`. Follow-ups surfaced (not freelanced): a one-line
+`schema.md` note that refine round doc ids are round-qualified; hotel refine still waits on upstream
+`refine_sync` (`spec/roadmap.md`).
+
 ## Batch 14 — Frontend: per-domain read model, raw-JSON render & form
 Rebuilt the frontend on the M2 **per-domain** Firestore model (`spec/flows.md`, `spec/schema.md`,
 `spec/ui.md`), replacing the M1 single-doc `results` render. `web/src/useJob.ts` now listens on the

@@ -18,28 +18,15 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 
 ## Un-done batches
 
-> **Milestone M2 (current):** the per-domain data model + backend fan-out, with **all three domains
-> integrated** — accommodations rebuilt on the new model, and **flights** + **activities** vendored
-> and wired in (`roadmap.md`, `schema.md`, `flows.md`, `agents.md`). The FE renders each domain as
-> **raw JSON per container**; the **feedback / refine loop** lands last. Supersedes the M1 single-doc
-> `results` model (`archive.md`). **Batch 13 is the only batch left**: 11 + 12 + 15 built the
-> backend fan-out to all three agents, and 14 shipped the per-domain FE read model + raw-JSON render
-> + extended form. 13's *hotel* refine is gated on upstream `refine_sync` while flights/activities
-> refine is not, so build the flights/activities + FE path first and guard the hotel branch.
+> **Milestone M2 (shipped).** The per-domain data model + backend fan-out to all three domains, the
+> raw-JSON-per-container FE, and the **feedback / refine loop** are all done (`roadmap.md`,
+> `schema.md`, `flows.md`, `agents.md`, `ui.md`; history in `specflow/history/BUILD_QUEUE_DONE.md`).
+> **No un-done batches remain.** The next milestone (the **orchestration agent** — an interactive,
+> multi-turn planner, `roadmap.md`) is not yet broken into batches; the one open upstream gate is the
+> hotel agent's `refine_sync` + stable `Pick.id`, which unblocks *hotel* refine only.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
 
-### Batch 13 — Feedback / refine loop (all domains)  (dep: 12, 15)
-
-- Refinement-doc `onCreate` → **refine run**: claim/lease it, set the domain `running`, read the
-  `feedback` marks off `suggested`, call the domain adapter's refine, **append** round-N `suggested`
-  tagged with `round`, mark the refinement `done`, domain back to `idle` (`flows.md`).
-- **Flights / activities refine** = re-run search with the feedback folded into the request; **no
-  upstream dependency** (`agents.md`). **Hotel refine** = the agent's `refine_sync` — `[NOT READY]`
-  until upstream ships `refine_sync` + stable `Pick.id` and the submodule bump lands (`agents.md`);
-  build the flights/activities + FE path first and guard the hotel branch until then.
-- FE: like / dislike controls write `feedback`; a per-section **Refine** button (enabled only when the
-  domain is `idle`) creates a `refinements` doc; selection writes a `selected` doc (`ui.md`).
-- Sweeper: extend the `collectionGroup` sweep to refinement docs.
+_(none)_
