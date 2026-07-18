@@ -1,43 +1,43 @@
 // Three-column wireframe frame (spec/ui.md): left scroll-nav, center one container per domain
-// section (only Accommodation populated in M1), right the trip-input form + job status. Auth gate
-// and the Firestore job flow are in useAuth / useJob.
-import Accommodation from "./Accommodation";
+// section (all three populated in M2), right the trip-input form + job status. Each section renders
+// its own domain's `suggested` from the per-domain read model (useJob). Auth gate and the Firestore
+// job flow are in useAuth / useJob.
+import DomainSection from "./DomainSection";
 import TripForm from "./TripForm";
+import { DOMAIN_SECTIONS } from "./types";
 import { useAuth } from "./useAuth";
 import { useJob } from "./useJob";
 
-const sections = [
-  { id: "flights", label: "Flights" },
-  { id: "accommodation", label: "Accommodation" },
-  { id: "activities", label: "Activities" },
-] as const;
-
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth();
-  const { submitting, doc, tripId, submitError, submit } = useJob(user?.uid ?? null);
+  const { submitting, tripId, trip, domains, submitError, submit } = useJob(user?.uid ?? null);
+  const started = submitting || tripId !== null;
 
   return (
     <div className="layout">
       <nav className="left">
         <h1>Tripper</h1>
         <ul>
-          {sections.map((s) => (
-            <li key={s.id}>
-              <a href={`#${s.id}`}>{s.label}</a>
+          {DOMAIN_SECTIONS.map((s) => (
+            <li key={s.domain}>
+              <a href={`#${s.domain}`}>{s.label}</a>
             </li>
           ))}
         </ul>
       </nav>
 
       <main className="center">
-        {sections.map((s) => (
-          <section key={s.id} id={s.id} className="section">
+        {DOMAIN_SECTIONS.map((s) => (
+          <section key={s.domain} id={s.domain} className="section">
             <h2>{s.label}</h2>
-            {s.id === "accommodation" ? (
-              <Accommodation doc={doc} submitting={submitting} submitError={submitError} />
-            ) : (
-              <p className="placeholder">Coming soon.</p>
-            )}
+            <DomainSection
+              label={s.label}
+              state={domains[s.domain]}
+              started={started}
+              tripStatus={trip?.status}
+              tripError={trip?.error}
+              submitError={submitError}
+            />
           </section>
         ))}
       </main>

@@ -8,7 +8,15 @@ import {
   type RefundablePref,
 } from "./buildTripInput";
 import { PRESETS } from "./presets";
-import { AMENITIES, type Amenity, type TripInput } from "./types";
+import {
+  AMENITIES,
+  INTEREST_GROUPS,
+  TRAVEL_STYLES,
+  type Amenity,
+  type InterestGroup,
+  type TravelStyle,
+  type TripInput,
+} from "./types";
 
 interface Props {
   onSubmit: (input: TripInput) => void;
@@ -30,6 +38,15 @@ export default function TripForm({ onSubmit, submitting, disabled }: Props) {
       amenities: f.amenities.includes(a)
         ? f.amenities.filter((x) => x !== a)
         : [...f.amenities, a],
+    }));
+  }
+
+  function toggleInterest(g: InterestGroup) {
+    setForm((f) => ({
+      ...f,
+      interests: f.interests.includes(g)
+        ? f.interests.filter((x) => x !== g)
+        : [...f.interests, g],
     }));
   }
 
@@ -224,6 +241,71 @@ export default function TripForm({ onSubmit, submitting, disabled }: Props) {
             onChange={(e) => set("picksPerLens", e.target.value)}
           />
         </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Flights (optional)</legend>
+        <label>
+          Origin <span className="hint">(city or 3-letter IATA)</span>
+          <input
+            type="text"
+            value={form.origin}
+            placeholder="e.g. New York, NY or JFK"
+            onChange={(e) => set("origin", e.target.value)}
+          />
+        </label>
+        <label>
+          Flight budget (USD)
+          <input
+            type="number"
+            min={0}
+            value={form.flightBudgetUsd}
+            onChange={(e) => set("flightBudgetUsd", e.target.value)}
+          />
+        </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>Activities (optional)</legend>
+        <div className="row">
+          <label>
+            Budget (USD) <span className="hint">(ex-lodging)</span>
+            <input
+              type="number"
+              min={0}
+              value={form.activitiesBudgetUsd}
+              onChange={(e) => set("activitiesBudgetUsd", e.target.value)}
+            />
+          </label>
+          <label>
+            Travel style
+            <select
+              value={form.travelStyle}
+              onChange={(e) => set("travelStyle", e.target.value as TravelStyle)}
+            >
+              {TRAVEL_STYLES.map((s) => (
+                <option key={s} value={s}>
+                  {s}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="amenities">
+          <span>Interests</span>
+          <div className="amenity-grid">
+            {INTEREST_GROUPS.map((g) => (
+              <label key={g} className="checkbox">
+                <input
+                  type="checkbox"
+                  checked={form.interests.includes(g)}
+                  onChange={() => toggleInterest(g)}
+                />
+                {g}
+              </label>
+            ))}
+          </div>
+        </div>
       </fieldset>
 
       {validationError && <p className="form-error">{validationError}</p>}

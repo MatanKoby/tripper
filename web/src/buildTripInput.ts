@@ -1,7 +1,7 @@
 // Turn the wireframe form state into a clean TripInput, mirroring the client-side invariants the
 // backend's Pydantic contract enforces (spec/schema.md): a place locator, check_out > check_in,
 // adults >= 1, picks_per_lens >= 1. Empty optionals are omitted so the backend applies its defaults.
-import type { Amenity, TripInput } from "./types";
+import type { Amenity, InterestGroup, TravelStyle, TripInput } from "./types";
 
 export type RefundablePref = "either" | "refundable" | "nonrefundable";
 
@@ -21,6 +21,13 @@ export interface FormState {
   refundable: RefundablePref;
   amenities: Amenity[];
   picksPerLens: string;
+  // --- flights ---
+  origin: string; // departure point: city name or 3-letter IATA
+  flightBudgetUsd: string;
+  // --- activities ---
+  activitiesBudgetUsd: string;
+  interests: InterestGroup[];
+  travelStyle: TravelStyle;
 }
 
 export const EMPTY_FORM: FormState = {
@@ -39,6 +46,11 @@ export const EMPTY_FORM: FormState = {
   refundable: "either",
   amenities: [],
   picksPerLens: "3",
+  origin: "",
+  flightBudgetUsd: "",
+  activitiesBudgetUsd: "",
+  interests: [],
+  travelStyle: "balanced",
 };
 
 /** Parse "6, 9 11" -> [6, 9, 11]; ignores blanks, rejects non-integers. */
@@ -119,8 +131,19 @@ export function buildTripInput(form: FormState): BuildResult {
     guests: { adults, children_ages: childrenAges },
     guest_nationality: form.guestNationality.trim() || "US",
     picks_per_lens: picksPerLens,
+    travel_style: form.travelStyle,
   };
   if (Object.keys(filters).length) input.filters = filters;
+
+  // Flights + activities fields: send only what the user set, so the adapters apply their
+  // own defaults for the rest (spec/schema.md; empty optionals omitted).
+  const origin = form.origin.trim();
+  if (origin) input.origin = origin;
+  const flightBudget = optionalNumber(form.flightBudgetUsd);
+  if (flightBudget !== undefined) input.flight_budget_usd = flightBudget;
+  const activitiesBudget = optionalNumber(form.activitiesBudgetUsd);
+  if (activitiesBudget !== undefined) input.activities_budget_usd = activitiesBudget;
+  if (form.interests.length) input.interests = [...form.interests];
 
   return { ok: true, input };
 }

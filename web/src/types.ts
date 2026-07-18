@@ -1,7 +1,8 @@
 // TypeScript mirror of the tripper/agent contract (spec/schema.md, tripper/contract.py).
-// The UI produces `TripInput` (the job `input`) and renders `TripSuggestions` (the job `results`)
-// plus the job doc's lifecycle fields. Field names and shapes match the Pydantic models so the
-// backend's strict (extra="forbid") validation accepts what we write.
+// The UI produces `TripInput` (the trip `input`) and reads the per-domain Firestore model:
+// the trip doc's lifecycle plus each `domains/{domain}` doc and its `suggested/*` candidates.
+// Field names and shapes match the Pydantic models so the backend's strict (extra="forbid")
+// validation accepts what we write; the M1 single-doc `results` model is superseded (spec/archive.md).
 
 // --- enumerations -----------------------------------------------------------------------------
 
@@ -28,9 +29,31 @@ export const LENS_NAMES = [
 ] as const;
 export type LensName = (typeof LENS_NAMES)[number];
 
-export type AgentStatus = "ok" | "empty" | "degraded";
-export type TransportStatus = "ok" | "error";
-export type JobStatus = "pending" | "running" | "done" | "error";
+// The activities agent's 8 category groups (spec/schema.md); each selects the whole group.
+export const INTEREST_GROUPS = [
+  "nature",
+  "food",
+  "culture",
+  "adventure",
+  "nightlife",
+  "family",
+  "shopping",
+  "beach",
+] as const;
+export type InterestGroup = (typeof INTEREST_GROUPS)[number];
+
+// Activities pace (spec/schema.md).
+export const TRAVEL_STYLES = ["relaxed", "balanced", "packed"] as const;
+export type TravelStyle = (typeof TRAVEL_STYLES)[number];
+
+// The three per-domain slots a trip fans out to (spec/schema.md; the domain doc id is the value).
+export const DOMAINS = ["accommodations", "activities", "flights"] as const;
+export type Domain = (typeof DOMAINS)[number];
+
+export type TripStatus = "pending" | "active" | "error";
+export type DomainAgentStatus = "pending" | "running" | "idle" | "error";
+export type SelectionMode = "single" | "multi";
+export type SelectionStatus = "none" | "partial" | "confirmed";
 
 // --- shared value types -----------------------------------------------------------------------
 
@@ -83,92 +106,80 @@ export interface TripInput {
   guests?: Guests; // used only when stay.rooms is null
   guest_nationality?: string; // default "US"
   filters?: Filters;
-  lenses?: LensName[] | null; // null = all three
+  lenses?: LensName[] | null; // null = all three (hotel)
   picks_per_lens?: number; // >= 1, default 3
+  // --- flights (spec/agents.md) ---
+  origin?: string | null; // departure point: city name or 3-letter IATA
+  flight_budget_usd?: number | null; // max airfare in USD (flight offers are USD-only)
+  // --- activities (spec/agents.md) ---
+  activities_budget_usd?: number | null; // USD budget (ex-lodging); adapter defaults if null
+  interests?: InterestGroup[] | null; // null = the agent's default (culture, food)
+  travel_style?: TravelStyle; // default "balanced"
 }
 
-// --- response: hotel agent payload ------------------------------------------------------------
+// --- read model: per-domain Firestore docs (spec/schema.md) ------------------------------------
 
-export interface Offer {
-  total: number;
-  per_night?: number | null;
+export interface Price {
+  amount: number;
+  per: "night" | "total" | "person";
   currency: string;
-  board?: string | null;
-  refundable: boolean;
-  over_budget?: boolean;
 }
 
-export interface Pick {
-  name: string;
-  score: number; // 0..1, comparable across lenses
-  rationale: string;
-  why?: Record<string, number>;
-  area?: string | null;
-  distance_to_desired_km?: number | null;
-  price_per_night?: number | null;
-  currency?: string | null;
-  rating?: number | null; // 0..10
-  review_count?: number | null;
-  star_rating?: number | null; // 1..5
-  description?: string | null;
-  amenities?: Amenity[];
-  coordinates?: GeoPoint | null;
+/** The neutral, rendering-ready suggestion shape shared by all domains (spec/schema.md). */
+export interface ResultItem {
+  title: string;
+  subtitle?: string | null;
+  score?: number | null; // 0..1, comparable within a domain
+  price?: Price | null;
+  rating?: number | null;
   image_url?: string | null;
   url?: string | null;
-  offers?: Offer[];
+  badges?: string[];
+  rationale?: string | null;
+  detail?: Record<string, unknown>; // domain-specific passthrough
 }
 
-export interface Resolved {
-  city?: string | null;
-  area?: string | null;
-  center?: GeoPoint | null;
-  check_in?: string | null;
-  check_out?: string | null;
-  currency?: string | null;
+/** A `.../suggested/{suggestionId}` candidate: a ResultItem plus sort/group keys (spec/schema.md). */
+export interface SuggestedDoc extends ResultItem {
+  id: string; // the Firestore doc id (the agent's stable item id)
+  lens?: LensName | null; // hotel grouping; null for domains without lenses
+  rank?: number;
+  round?: number;
+  dismissed?: boolean;
+  feedback?: "liked" | "disliked" | null; // client-written (deferred to Batch 13)
 }
 
-export interface Diagnostics {
-  scorer: string;
-  providers_used?: string[];
-  candidates_found?: number;
-  candidates_after_filter?: number;
-  shortlisted?: number;
-  widened?: boolean;
-}
-
-export interface HotelPayload {
-  agent_status: AgentStatus;
+/** A `.../domains/{domain}` durable per-domain state doc (backend-owned; spec/schema.md). */
+export interface DomainDoc {
+  domain: Domain;
+  agentStatus: DomainAgentStatus;
+  selectionMode?: SelectionMode;
+  selectionStatus?: SelectionStatus;
+  round?: number;
   warnings?: string[];
-  resolved: Resolved;
-  lenses?: Partial<Record<LensName, Pick[]>>; // up to all three keys
-  diagnostics: Diagnostics;
+  diagnostics?: Record<string, unknown>;
+  counts?: Record<string, unknown>;
+  error?: TripError | null; // set alongside agentStatus "error"
+  lastError?: string | null;
 }
-
-// --- transport wrapper + job doc --------------------------------------------------------------
 
 export interface TripError {
   message: string;
   kind: string;
 }
 
-export interface TripSuggestions {
-  status: TransportStatus;
-  error?: TripError | null;
-  hotel?: HotelPayload | null;
-}
-
-/** The Firestore job doc at users/{uid}/trips/{tripId} (fields the UI reads; spec/schema.md). */
+/** The trip doc at users/{uid}/trips/{tripId} (fields the UI reads; spec/schema.md). */
 export interface TripDoc {
   input?: TripInput;
-  status: JobStatus;
-  results?: TripSuggestions | null;
-  error?: TripError | null;
+  status: TripStatus;
+  error?: TripError | null; // only if fan-out itself fails
 }
 
-// --- lens display order + labels (for the flattened wireframe list) ---------------------------
+// --- display order + labels -------------------------------------------------------------------
 
-export const LENS_LABELS: Record<LensName, string> = {
-  stratified_best: "Stratified best",
-  overall_standouts: "Overall standouts",
-  hidden_gems: "Hidden gems",
-};
+// Section order matches the left nav (spec/ui.md): Flights, Accommodation, Activities.
+export const DOMAIN_SECTIONS: { domain: Domain; label: string }[] = [
+  { domain: "flights", label: "Flights" },
+  { domain: "accommodations", label: "Accommodation" },
+  { domain: "activities", label: "Activities" },
+];
