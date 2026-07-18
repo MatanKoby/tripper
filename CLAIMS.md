@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 13 — Feedback / refine loop (all domains)
+- Owner: claude
+- Started: 2026-07-18 12:23
+
 ## Completed
 
 ### Batch 14 — Frontend: per-domain read model, raw-JSON render & form
