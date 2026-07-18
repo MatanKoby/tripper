@@ -11,6 +11,7 @@ from tripper.contract import (
     ResultItem,
     SelectedDoc,
     SuggestedDoc,
+    TravelStyle,
     TripInput,
     TripSuggestions,
 )
@@ -44,6 +45,11 @@ FULL_TRIP_INPUT: dict = {
     },
     "lenses": ["stratified_best", "hidden_gems"],
     "picks_per_lens": 4,
+    "origin": "Tel Aviv",
+    "flight_budget_usd": 900.0,
+    "activities_budget_usd": 1200.0,
+    "interests": ["culture", "food"],
+    "travel_style": "packed",
 }
 
 # A fully-populated agent payload with one pick under one lens.
@@ -136,6 +142,22 @@ def test_minimal_trip_input_applies_defaults() -> None:
     assert ti.picks_per_lens == 3
     assert ti.lenses is None
     assert ti.place.radius_km == 5.0
+    # flights / activities fields default to "not provided" (adapters fill their own defaults).
+    assert ti.origin is None
+    assert ti.flight_budget_usd is None
+    assert ti.activities_budget_usd is None
+    assert ti.interests is None
+    assert ti.travel_style is TravelStyle.balanced
+
+
+def test_trip_input_rejects_unknown_interest_group() -> None:
+    with pytest.raises(ValidationError):
+        TripInput.from_dict({**FULL_TRIP_INPUT, "interests": ["culture", "spelunking"]})
+
+
+def test_trip_input_rejects_unknown_travel_style() -> None:
+    with pytest.raises(ValidationError):
+        TripInput.from_dict({**FULL_TRIP_INPUT, "travel_style": "frantic"})
 
 
 def test_place_requires_a_locator() -> None:

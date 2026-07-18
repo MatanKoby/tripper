@@ -8,8 +8,14 @@ firebase-functions>=0.4
 pydantic>=2.7
 pydantic-settings>=2.3
 
-# Vendored hotel-finder agent (git submodule under vendor/, checked out with
-# `submodules: recursive` in CI). Installed from its local path so `hotel_finder` is importable
-# at runtime (the adapter imports it function-locally). Its own deps (openai, httpx) resolve
-# transitively from its pyproject.
+# Vendored domain agents (git submodules under vendor/, checked out with `submodules: recursive`
+# in CI). Installed from their local paths so their packages are importable at runtime (each
+# adapter imports its agent function-locally). Each agent's own deps resolve transitively from its
+# pyproject.
+#   hotel-finder  -> `hotel_finder`  (openai, httpx)
+#   flight-finder -> `flight_finder` (requests, python-dotenv)
+#   travel-agent  -> `travel_agent`  (langgraph + langchain stack — heavy; the largest contributor
+#                    to the Function image size, spec/agents.md)
 ./vendor/agents/hotel-finder-agent
+./vendor/agents/flight-finder-agent
+./vendor/agents/travel-agent

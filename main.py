@@ -50,14 +50,16 @@ SWEEP_SCHEDULE = "every 5 minutes"
 def build_active_agents(settings: Settings) -> list[Agent]:
     """The domain agents the orchestrator runs for each trip.
 
-    M2 ships the hotel adapter; flights and activities are activated in Batch 15. The import is
+    M2 fans out to all three domains: accommodations, flights, and activities. The imports are
     function-local so importing this module never requires a vendored agent submodule
-    (``spec/agents.md``); it is resolved at trigger time, where the deploy has vendored it. Isolated
-    from the reliability machinery so agent wiring changes never reach into the orchestrator.
+    (``spec/agents.md``); they are resolved at trigger time, where the deploy has vendored them.
+    Isolated from the reliability machinery so agent wiring never reaches into the orchestrator.
     """
+    from tripper.agents.activities_adapter import ActivitiesAdapter
+    from tripper.agents.flight_adapter import FlightAdapter
     from tripper.agents.hotel_adapter import HotelAdapter
 
-    return [HotelAdapter(settings)]
+    return [HotelAdapter(settings), FlightAdapter(settings), ActivitiesAdapter(settings)]
 
 
 def _agents_by_domain(agents: list[Agent]) -> dict[str, Agent]:

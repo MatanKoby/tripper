@@ -33,6 +33,8 @@ __all__ = [
     # enums
     "Amenity",
     "LensName",
+    "TravelStyle",
+    "InterestGroup",
     "AgentStatus",
     "TransportStatus",
     "Domain",
@@ -93,6 +95,30 @@ class LensName(StrEnum):
     stratified_best = "stratified_best"
     overall_standouts = "overall_standouts"
     hidden_gems = "hidden_gems"
+
+
+class TravelStyle(StrEnum):
+    """Activities pace (``spec/schema.md``); maps to the activities agent's ``travel_style``."""
+
+    relaxed = "relaxed"
+    balanced = "balanced"
+    packed = "packed"
+
+
+class InterestGroup(StrEnum):
+    """The activities agent's 8 category groups (``spec/schema.md``); each selects the whole group.
+
+    Values are the group names the activities agent accepts as ``interests`` (``spec/agents.md``).
+    """
+
+    nature = "nature"
+    food = "food"
+    culture = "culture"
+    adventure = "adventure"
+    nightlife = "nightlife"
+    family = "family"
+    shopping = "shopping"
+    beach = "beach"
 
 
 class AgentStatus(StrEnum):
@@ -267,6 +293,13 @@ class TripInput(_Model):
     filters: Filters = Field(default_factory=Filters)
     lenses: list[LensName] | None = None  # null = all three
     picks_per_lens: int = Field(default=3, ge=1)
+    # --- flights (spec/agents.md); the flight adapter maps these + shared context ---
+    origin: str | None = None  # departure point: city name or 3-letter IATA
+    flight_budget_usd: float | None = None  # max airfare in USD (flight offers are USD-only)
+    # --- activities (spec/agents.md); the activities adapter maps these + shared context ---
+    activities_budget_usd: float | None = None  # USD budget (ex-lodging); adapter defaults if null
+    interests: list[InterestGroup] | None = None  # null = the agent's default (culture, food)
+    travel_style: TravelStyle = TravelStyle.balanced  # activities pace
 
 
 # --- response: hotel agent payload ----------------------------------------------------------
