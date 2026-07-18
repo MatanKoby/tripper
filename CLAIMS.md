@@ -19,11 +19,88 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
 - Owner: claude
 - Started: 2026-07-18 10:32
+- Finished: 2026-07-18 11:20
+- Commit: d1d3540
 
-## Completed
+**What shipped.** Flights and activities are now integrated, so the M2 fan-out activates all three
+domains (`spec/agents.md`, `spec/schema.md`). **Two submodules vendored** under `vendor/agents/`:
+`flight-finder-agent` (`rosenn88`, package `flight_finder`, sync entry `flight_finder.run`, pinned
+`main` @`97502f9`) and `travel-agent` (`hadar-grimberg`, package `travel_agent`, entry
+`travel_agent.ActivitiesAgent().handle`, pinned `master` @`73edce5`); both pass the submodule-bump
+gate (`compileall` + non-e2e tests + tripper adapter/contract tests). **`tripper/contract.py`**:
+`TripInput` gains `origin`, `flight_budget_usd`, `activities_budget_usd`, `interests`,
+`travel_style`, plus the `InterestGroup` (8 group names) and `TravelStyle` (relaxed/balanced/packed)
+enums. **`tripper/config.py`**: adds the Nebius fields the new agents read that tripper lacked
+(`nebius_endpoint_id`, `nebius_api_key`, `nebius_base_url`) and per-agent env builders
+`flight_agent_env()` / `activities_agent_env()` (the existing `agent_env()` stays the hotel one);
+a shared `_drop_empty` keeps blanks out so each agent falls back to its keyless default;
+`.env.example` documents the new vars.
+
+**`tripper/agents/flight_adapter.py`** (`FlightAdapter`, domain `flights`, `selection_mode: single`):
+maps `TripInput` + shared context to the flight agent's request dict (destination = `place.city`
+else `place.text`; origin = `trip.origin`; the stay dates become a **round trip**, out on `check_in`
+back on `check_out`; `flight_budget_usd` in USD), calls `run`, and maps each market `Offer` (cheapest
+first) to a neutral `ResultItem` (`price` per-`total` USD, within/over-budget badge, google/skyscanner
+link, offer+query in `detail`), the offer's **market code** as the stable suggestion id;
+`summary`/`within_budget_count`/`pricing_source`/`query` go on `diagnostics`. Because tripper always
+passes a structured origin+destination the agent's free-text LLM path never runs (fully
+deterministic); with no `TRAVELPAYOUTS_TOKEN` it uses offline **simulated** pricing. A missing origin
+or center-only destination is a clean empty outcome (warning), and the agent's `BadRequest`
+(unresolvable place) is caught as empty+warning, not a transport error.
+
+**`tripper/agents/activities_adapter.py`** (`ActivitiesAdapter`, domain `activities`,
+`selection_mode: multi`): builds the agent's `start` trip (destination, stay dates,
+`budget_usd` = `activities_budget_usd` or the `1500.0` default, `travelers` = adults+children clamped
+1..20, `interests` omitted when null so the agent defaults, `travel_style`), then **drives the
+multi-turn LangGraph conversation statelessly within the one run** — `start`, then per awaiting round
+relay `{selected: <all names>, approve: true}` to accept the category and advance, bounded by a
+25-turn cap — until `completed`, and **discards the instance** (no `session_id` persisted,
+`spec/agents.md`). Each `RecommendedActivity` across rounds becomes a `ResultItem` (title=name,
+subtitle=category, `price` per-`person` USD when a cost is present, description as rationale,
+reservation badge; id `"{category}-{index}"`); the completed `itinerary` + `reservation_checklist` +
+`user_preferences` go on `diagnostics`. `RecommendedActivity` carries no booking link, so `url` is
+`None`. A reported agent `status: "error"` raises (transport failure → domain `error`); no
+destination or no recommendations is an empty outcome with a warning.
+
+**`main.build_active_agents`** now returns `[HotelAdapter, FlightAdapter, ActivitiesAdapter]`
+(function-local imports, so importing `main` still needs no submodule). **`requirements.txt`**
+installs both new local-path submodules (travel-agent brings the heavy `langgraph`/`langchain` stack
+— the largest contributor to the Function image, `spec/agents.md`). `.gitmodules` pins the tracking
+branches (`main` / `master`).
+
+**Verification.** `ruff check` clean; `pytest` **91 passed** against the Firestore emulator + both
+mock agents (was 66): +14 flight-adapter, +14 activities-adapter (request/result/collection mapping,
+empty/unroutable outcomes, `_require_ok` raise, and per-domain emulator-backed
+`fan_out`→`run_search`→`suggested/*` round-trips), +3 contract (new-field defaults, unknown
+interest/style rejection), and the `FULL_TRIP_INPUT` round-trip fixture extended. Both submodule-bump
+gates pass in `--check-only`. A full three-domain `fan_out` under `firebase emulators:exec` drives
+all three domains to `idle` with candidates (accommodations 8, flights 10, activities 6) — exactly
+the deployed trigger behavior.
+
+**Manual prereqs / follow-ups for the user.**
+- **Editable installs for local dev / tests:** `pip install -e vendor/agents/flight-finder-agent -e
+  vendor/agents/travel-agent` (the adapter tests `importorskip` their agent, so they skip cleanly
+  without it). CI already checks out submodules recursively.
+- **Deploy secrets (Batch 8 / DEPLOY.md, not updated here):** to run activities against a real LLM,
+  set `NEBIUS_API_KEY` + `NEBIUS_BASE_URL` (per-token) or `NEBIUS_ENDPOINT_URL` + `NEBIUS_ENDPOINT_ID`
+  (serverless); for live flight fares set `TRAVELPAYOUTS_TOKEN` (the flight agent reads it straight
+  from the process env). Without them both agents run keyless (simulated / mock). Consider adding
+  these to `DEPLOY.md`'s secret list and confirming the Function image size stays within limits given
+  the langgraph stack.
+- **Spec drift to confirm (surfaced, not freelanced):** (1) `spec/architecture.md` line ~41 says
+  "There is no `NEBIUS_ENDPOINT_ID`" — true for the hotel agent, but the flight/activities agents do
+  read it; the line may want a note. (2) `spec/schema.md` says activities map a booking-link `url`,
+  but `RecommendedActivity` has no such field (url is `None`); the booking links live on the
+  itinerary's reservation items instead. (3) activities selection is `multi` and flights `single`
+  (spec states only accommodations=single) — chosen here, worth confirming. (4) The langgraph
+  `MemorySaver` emits harmless "Deserializing unregistered type" warnings to stderr per run; cosmetic.
+
+### Batch 12 — Backend fan-out & per-domain search run (domain-general)
 
 ### Batch 12 — Backend fan-out & per-domain search run (domain-general)
 - Owner: claude

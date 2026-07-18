@@ -22,33 +22,13 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > integrated** — accommodations rebuilt on the new model, and **flights** + **activities** vendored
 > and wired in (`roadmap.md`, `schema.md`, `flows.md`, `agents.md`). The FE renders each domain as
 > **raw JSON per container**; the **feedback / refine loop** lands last. Supersedes the M1 single-doc
-> `results` model (`archive.md`). Suggested order: **15 → 14 → 13** (15 vendors the two new agents
-> onto the Batch-12 fan-out; 13's *hotel* refine is gated on upstream `refine_sync` while
-> flights/activities refine is not; 11 + 12 done).
+> `results` model (`archive.md`). Suggested order: **14 → 13** (13's *hotel* refine is gated on
+> upstream `refine_sync` while flights/activities refine is not; 11 + 12 + 15 done — the backend
+> now fans out to all three agents).
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
-
-### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension  (dep: 12)
-
-- **Vendor** both as submodules under `vendor/agents/`: `flight-finder-agent` (import `flight_finder`,
-  entry `flight_finder.run`) and `travel-agent` (import `travel_agent`, entry
-  `travel_agent.ActivitiesAgent().handle`) — `agents.md`. Run the **submodule-bump gate** on each
-  (`compileall` + non-e2e tests + tripper's adapter/contract tests).
-- Extend `tripper/config.py`: per-agent env mappings that build each agent's `Settings`; add the
-  Nebius fields the new agents read that tripper lacks (`nebius_endpoint_id`, `nebius_api_key`,
-  `nebius_base_url`) as needed (`architecture.md`, `agents.md`).
-- **`flight_adapter.py`**: map `TripInput` (+ `origin`, `flight_budget_usd`) → `FlightRequest`, call
-  `flight_finder.run`, map `FlightResult` offers → `ResultItem` + `detail` (`schema.md`).
-- **`activities_adapter.py`**: map `TripInput` (+ `activities_budget_usd`, `interests`, `travel_style`,
-  `travelers` from `guests`) → the `start` request; drive `ActivitiesAgent().handle` `start`→`finish`
-  **statelessly** within the run (discard the instance); map `RecommendedActivity` → `ResultItem`,
-  `Itinerary` → domain `diagnostics` (`agents.md`, `schema.md`).
-- `TripInput` additions in `tripper/contract.py` + the `InterestGroup` / `TravelStyle` enums; register
-  all three agents in `build_active_agents` (`main.py`) so the fan-out activates all three.
-- Deps: add both packages to the deploy install; note the activities `langgraph` / `langchain` stack
-  is heavy for the Function image (`agents.md`).
 
 ### Batch 14 — Frontend: per-domain read model, raw-JSON render & form  (dep: 12; renders 12 + 15 output)
 

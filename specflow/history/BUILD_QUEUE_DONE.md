@@ -10,6 +10,25 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
+Integrated the flights and activities domains so the M2 fan-out activates all three
+(`spec/agents.md`, `spec/schema.md`). Vendored two submodules under `vendor/agents/`:
+`flight-finder-agent` (`flight_finder.run`) and `travel-agent` (`travel_agent.ActivitiesAgent().handle`),
+both passing the submodule-bump gate. `tripper/contract.py`: `TripInput` gains `origin` /
+`flight_budget_usd` / `activities_budget_usd` / `interests` / `travel_style` + the `InterestGroup` and
+`TravelStyle` enums. `tripper/config.py`: adds `nebius_endpoint_id` / `nebius_api_key` /
+`nebius_base_url` and per-agent env builders `flight_agent_env()` / `activities_agent_env()`.
+`flight_adapter.py` maps a trip to a round-trip flight request (structured, so no LLM; offline
+simulated pricing keyless) and each market offer to a neutral `ResultItem`. `activities_adapter.py`
+drives the LangGraph agent **statelessly** (start → accept each category → completed itinerary,
+instance discarded) and maps each `RecommendedActivity` to a `ResultItem`, the itinerary to
+`diagnostics`. `build_active_agents` returns all three adapters; `requirements.txt` installs both new
+submodules (travel-agent brings the heavy langgraph/langchain stack). Verified: `ruff` clean, `pytest`
+91 passed on the emulator + both mock agents, both bump gates green, and a full three-domain fan-out
+drives all domains to `idle` with candidates. Key commit `d1d3540`. Follow-ups: deploy secrets for
+real LLM/live-fares (Batch 8 / DEPLOY.md) and minor `spec/architecture.md` + `spec/schema.md` drift
+notes (see `CLAIMS.md`).
+
 ## Batch 12 — Backend fan-out & per-domain search run (domain-general)
 Replaced the M1 single-doc orchestrator with the M2 fan-out (`spec/flows.md`). The `Agent` seam
 (`tripper/agents/base.py`) is now domain-general: an adapter declares `domain` + `selection_mode` and
