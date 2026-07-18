@@ -54,6 +54,8 @@ export type TripStatus = "pending" | "active" | "error";
 export type DomainAgentStatus = "pending" | "running" | "idle" | "error";
 export type SelectionMode = "single" | "multi";
 export type SelectionStatus = "none" | "partial" | "confirmed";
+export type RefinementStatus = "pending" | "running" | "done" | "error";
+export type Feedback = "liked" | "disliked";
 
 // --- shared value types -----------------------------------------------------------------------
 
@@ -141,12 +143,30 @@ export interface ResultItem {
 
 /** A `.../suggested/{suggestionId}` candidate: a ResultItem plus sort/group keys (spec/schema.md). */
 export interface SuggestedDoc extends ResultItem {
-  id: string; // the Firestore doc id (the agent's stable item id)
+  id: string; // the Firestore doc id (the agent's stable item id, round-qualified past round 1)
   lens?: LensName | null; // hotel grouping; null for domains without lenses
   rank?: number;
   round?: number;
   dismissed?: boolean;
-  feedback?: "liked" | "disliked" | null; // client-written (deferred to Batch 13)
+  feedback?: Feedback | null; // the only client-writable field (spec/access.md)
+}
+
+/** A `.../selected/{itemId}` chosen item: a snapshot of the suggestion (client-written). */
+export interface SelectedDoc {
+  id: string; // the Firestore doc id
+  suggestionId: string; // the suggested doc it came from (back-reference)
+  snapshot: ResultItem; // copy at selection time, so the choice survives a re-run
+  meta?: Record<string, unknown>;
+  status?: "selected" | "confirmed";
+}
+
+/** A `.../refinements/{refineId}` refine request + its run (client-creates, backend transitions). */
+export interface RefinementDoc {
+  id: string;
+  round: number;
+  status: RefinementStatus;
+  error?: TripError | null; // set alongside status "error"
+  lastError?: string | null;
 }
 
 /** A `.../domains/{domain}` durable per-domain state doc (backend-owned; spec/schema.md). */

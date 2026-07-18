@@ -10,7 +10,18 @@ import { useJob } from "./useJob";
 
 export default function App() {
   const { user, ready, signIn, signOut } = useAuth();
-  const { submitting, tripId, trip, domains, submitError, submit } = useJob(user?.uid ?? null);
+  const {
+    submitting,
+    tripId,
+    trip,
+    domains,
+    submitError,
+    submit,
+    setFeedback,
+    refine,
+    select,
+    deselect,
+  } = useJob(user?.uid ?? null);
   const started = submitting || tripId !== null;
 
   return (
@@ -31,12 +42,17 @@ export default function App() {
           <section key={s.domain} id={s.domain} className="section">
             <h2>{s.label}</h2>
             <DomainSection
+              domain={s.domain}
               label={s.label}
               state={domains[s.domain]}
               started={started}
               tripStatus={trip?.status}
               tripError={trip?.error}
               submitError={submitError}
+              onFeedback={setFeedback}
+              onRefine={refine}
+              onSelect={select}
+              onDeselect={deselect}
             />
           </section>
         ))}

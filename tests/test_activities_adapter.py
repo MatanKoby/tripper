@@ -36,7 +36,7 @@ from tripper.contract import (  # noqa: E402
     SelectionMode,
     TripInput,
 )
-from tripper.orchestrator import fan_out, run_search  # noqa: E402
+from tripper.orchestrator import fan_out, run_refine, run_search  # noqa: E402
 
 BASE_INPUT: dict = {
     "place": {"city": "Kyoto", "country_code": "JP"},
@@ -262,3 +262,38 @@ def test_fan_out_and_search_populate_activities(db) -> None:
     first = suggested[0].to_dict()
     assert first["title"]
     assert first["round"] == 1
+
+
+def test_fan_out_search_and_refine_append_round_two(db) -> None:
+    # The full loop against the real agent + emulator: search, feedback, refine, append round 2.
+    trip_ref = db.collection("users").document("u1").collection("trips").document()
+    trip_ref.set({"input": BASE_INPUT, "status": "pending"})
+    adapter = ActivitiesAdapter(_settings())
+
+    fan_out(db, trip_ref, agents=[adapter])
+    domain_ref = trip_ref.collection("domains").document("activities")
+    run_search(db, domain_ref, agents_by_domain={"activities": adapter})
+
+    # Dislike the round-1 culture picks so the refine drops the whole group (interests + notes).
+    round_one = {s.id: s.to_dict() for s in domain_ref.collection("suggested").stream()}
+    for sid, data in round_one.items():
+        if data.get("subtitle") == "culture":
+            domain_ref.collection("suggested").document(sid).update({"feedback": "disliked"})
+
+    refine_ref = domain_ref.collection("refinements").document("rf1")
+    refine_ref.set({"round": 2, "status": "pending"})
+    run_refine(db, refine_ref, agents_by_domain={"activities": adapter})
+
+    assert refine_ref.get().to_dict()["status"] == "done"
+    domain = domain_ref.get().to_dict()
+    assert domain["agentStatus"] == "idle"
+    assert domain["round"] == 2
+
+    all_docs = {s.id: s.to_dict() for s in domain_ref.collection("suggested").stream()}
+    round_two = {sid: d for sid, d in all_docs.items() if d.get("round") == 2}
+    assert round_two, "refine should append a round-2 batch"
+    assert all(sid.endswith("::r2") for sid in round_two), "round 2 uses round-qualified ids"
+    # The disliked round-1 culture picks are now hidden.
+    culture_ids = [sid for sid, d in round_one.items() if d["subtitle"] == "culture"]
+    assert culture_ids and all(all_docs[sid]["dismissed"] for sid in culture_ids)
+    assert "culture" not in {d["subtitle"] for d in round_two.values()}
