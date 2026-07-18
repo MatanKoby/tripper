@@ -21,13 +21,21 @@ from tripper.agents.activities_adapter import (  # noqa: E402
     ActivitiesAdapter,
     _activity_to_item,
     _collect_round,
+    _fold_feedback,
     _require_ok,
     _to_trip_request,
     _travelers,
 )
-from tripper.agents.base import DomainSearchResult, Suggestion  # noqa: E402
+from tripper.agents.base import DomainSearchResult, PriorCandidate, Suggestion  # noqa: E402
 from tripper.config import Settings  # noqa: E402
-from tripper.contract import Domain, PricePer, SelectionMode, TripInput  # noqa: E402
+from tripper.contract import (  # noqa: E402
+    Domain,
+    Feedback,
+    PricePer,
+    ResultItem,
+    SelectionMode,
+    TripInput,
+)
 from tripper.orchestrator import fan_out, run_search  # noqa: E402
 
 BASE_INPUT: dict = {
@@ -54,6 +62,7 @@ def test_domain_and_selection_mode() -> None:
     adapter = ActivitiesAdapter(_settings())
     assert adapter.domain is Domain.activities
     assert adapter.selection_mode is SelectionMode.multi
+    assert adapter.supports_refine is True  # refine = a fresh run with the feedback folded in
 
 
 # --- request mapping --------------------------------------------------------------------------
@@ -170,6 +179,66 @@ def test_run_without_destination_is_a_clean_empty_outcome() -> None:
     result = ActivitiesAdapter(_settings()).run(trip)
     assert result.suggestions == []
     assert result.warnings
+
+
+# --- refine (feedback folded into a fresh start request) --------------------------------------
+
+
+def _marked(title: str, category: str, feedback: Feedback) -> PriorCandidate:
+    item = ResultItem(title=title, subtitle=category, detail={"category": category})
+    return PriorCandidate(id=f"{category}-0", item=item, feedback=feedback)
+
+
+def test_fold_feedback_adjusts_interests_and_notes() -> None:
+    request = {"destination": "Kyoto", "interests": ["culture", "food"], "travel_style": "packed"}
+    prior = [
+        _marked("Kinkaku-ji", "culture", Feedback.disliked),
+        _marked("Nishiki Market", "food", Feedback.liked),
+        _marked("Arashiyama", "nature", Feedback.liked),  # gains a group not originally selected
+    ]
+
+    _fold_feedback(request, prior)
+
+    # culture dropped (disliked), food kept (liked), nature added (liked); declaration order.
+    assert request["interests"] == ["nature", "food"]
+    assert "Prioritize activities like: Nishiki Market, Arashiyama." in request["notes"]
+    assert "Avoid activities like: Kinkaku-ji." in request["notes"]
+
+
+def test_fold_feedback_drops_interests_when_all_disliked() -> None:
+    request = {"destination": "Kyoto", "interests": ["culture"]}
+    _fold_feedback(request, [_marked("Kinkaku-ji", "culture", Feedback.disliked)])
+    # Every interest dropped -> the key is omitted so the agent re-applies its own default.
+    assert "interests" not in request
+    assert "Avoid activities like: Kinkaku-ji." in request["notes"]
+
+
+def test_fold_feedback_no_marks_is_a_noop() -> None:
+    request = {"destination": "Kyoto", "interests": ["culture", "food"]}
+    _fold_feedback(request, [])
+    assert request == {"destination": "Kyoto", "interests": ["culture", "food"]}
+
+
+def test_refine_drives_to_completion_with_feedback() -> None:
+    adapter = ActivitiesAdapter(_settings())
+    base = adapter.run(_trip())
+    # Dislike everything culture, like everything food.
+    prior = [
+        PriorCandidate(
+            id=s.id,
+            item=s.item,
+            feedback=Feedback.disliked if s.item.subtitle == "culture" else Feedback.liked,
+        )
+        for s in base.suggestions
+    ]
+
+    refined = adapter.refine(_trip(), prior)
+
+    assert isinstance(refined, DomainSearchResult)
+    assert refined.suggestions
+    assert refined.diagnostics["status"] == "completed"
+    # culture was disliked away, so the refined round should not recommend culture activities.
+    assert "culture" not in {s.item.subtitle for s in refined.suggestions}
 
 
 # --- fan-out + search integration (emulator-backed; skips without one) -------------------------

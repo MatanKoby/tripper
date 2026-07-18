@@ -20,14 +20,24 @@ here in the adapter, never by editing the submodule.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from flight_finder import BadRequest, run
 from flight_finder.config import Settings as AgentSettings
 
-from tripper.agents.base import Agent, DomainSearchResult, Suggestion
+from tripper.agents.base import Agent, DomainSearchResult, PriorCandidate, Suggestion
 from tripper.config import Settings
-from tripper.contract import Domain, Place, Price, PricePer, ResultItem, SelectionMode, TripInput
+from tripper.contract import (
+    Domain,
+    Feedback,
+    Place,
+    Price,
+    PricePer,
+    ResultItem,
+    SelectionMode,
+    TripInput,
+)
 
 
 class FlightAdapter(Agent):
@@ -35,6 +45,7 @@ class FlightAdapter(Agent):
 
     domain = Domain.flights
     selection_mode = SelectionMode.single
+    supports_refine = True  # refine = re-run with the feedback folded in (``spec/agents.md``)
 
     def __init__(self, settings: Settings) -> None:
         # Build the agent's Settings from tripper's config; empty values are dropped so the agent
@@ -48,7 +59,23 @@ class FlightAdapter(Agent):
         a warning), not a transport failure; only a genuine call failure propagates so the
         orchestrator can mark the domain ``error`` (``spec/agents.md``).
         """
+        return self._run(_to_request(trip))
+
+    def refine(self, trip: TripInput, prior: Sequence[PriorCandidate]) -> DomainSearchResult:
+        """Re-run search with the user's feedback folded into the fare budget (``spec/agents.md``).
+
+        The flight agent is a pure function with no dedicated refine entry point, so a refine is
+        just a search with an adjusted request: disliked offers pull the budget below the cheapest
+        of them (steer toward cheaper fares), and liked offers hold the budget high enough to keep
+        them in range. The route and dates are unchanged.
+        """
         request = _to_request(trip)
+        if request is not None:
+            request["budget"] = _fold_budget(request.get("budget"), prior)
+        return self._run(request)
+
+    def _run(self, request: dict[str, Any] | None) -> DomainSearchResult:
+        """Shared call + mapping for :meth:`run` and :meth:`refine` (``spec/agents.md``)."""
         if request is None:
             return DomainSearchResult(
                 suggestions=[],
@@ -60,6 +87,26 @@ class FlightAdapter(Agent):
             # Unresolvable origin/destination the agent couldn't match to a city/airport.
             return DomainSearchResult(suggestions=[], warnings=[str(exc)])
         return _to_result(result)
+
+
+def _fold_budget(budget: float | None, prior: Sequence[PriorCandidate]) -> float | None:
+    """Adjust the fare budget from the wanted/unwanted marks (``spec/agents.md``).
+
+    Disliked fares cap the budget just below the cheapest disliked price (push toward cheaper);
+    liked fares raise it to at least the priciest liked price (keep them affordable). With no priced
+    marks the budget is unchanged.
+    """
+    disliked = [
+        c.item.price.amount for c in prior if c.feedback is Feedback.disliked and c.item.price
+    ]
+    liked = [c.item.price.amount for c in prior if c.feedback is Feedback.liked and c.item.price]
+    if disliked:
+        cap = min(disliked) - 1.0
+        budget = cap if budget is None else min(budget, cap)
+    if liked:
+        floor = max(liked)
+        budget = floor if budget is None else max(budget, floor)
+    return budget
 
 
 def _agent_settings(settings: Settings) -> AgentSettings:

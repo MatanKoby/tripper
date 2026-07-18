@@ -20,14 +20,25 @@ here in the adapter, never by editing the submodule.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from travel_agent import ActivitiesAgent
 from travel_agent import Settings as AgentSettings
 
-from tripper.agents.base import Agent, DomainSearchResult, Suggestion
+from tripper.agents.base import Agent, DomainSearchResult, PriorCandidate, Suggestion
 from tripper.config import Settings
-from tripper.contract import Domain, Place, Price, PricePer, ResultItem, SelectionMode, TripInput
+from tripper.contract import (
+    Domain,
+    Feedback,
+    InterestGroup,
+    Place,
+    Price,
+    PricePer,
+    ResultItem,
+    SelectionMode,
+    TripInput,
+)
 
 #: The agent requires a positive budget; tripper defaults it when the trip leaves it null
 #: (``spec/schema.md``). Matches the agent's own free-text fallback so behavior is consistent.
@@ -44,6 +55,7 @@ class ActivitiesAdapter(Agent):
 
     domain = Domain.activities
     selection_mode = SelectionMode.multi
+    supports_refine = True  # refine = a fresh stateless run with the feedback folded in (agents.md)
 
     def __init__(self, settings: Settings) -> None:
         # Build the agent's Settings once from tripper's config; the ActivitiesAgent itself is
@@ -56,14 +68,36 @@ class ActivitiesAdapter(Agent):
         Raises only on a transport failure (the agent reports ``status: "error"``); an unlocatable
         destination or a run that produced no activities is a valid empty outcome with a warning.
         """
+        return self._drive(_to_trip_request(trip))
+
+    def refine(self, trip: TripInput, prior: Sequence[PriorCandidate]) -> DomainSearchResult:
+        """A fresh stateless run with the wanted/unwanted marks folded in (``spec/agents.md``).
+
+        Never a resume: a new ``start`` request whose ``interests`` gains the categories of liked
+        activities and drops those of disliked ones, and whose ``notes`` name the liked/disliked
+        activities. The state lives in Firestore, not the agent; the run is driven to completion and
+        appended as the next round exactly like a search.
+        """
         trip_request = _to_trip_request(trip)
+        if trip_request is not None:
+            _fold_feedback(trip_request, prior)
+        return self._drive(trip_request)
+
+    def _drive(self, trip_request: dict[str, Any] | None) -> DomainSearchResult:
+        """Statelessly drive one ``start`` request to a completed itinerary and map it (agents.md).
+
+        Shared by :meth:`run` and :meth:`refine`: a fresh ``ActivitiesAgent`` is started, its
+        per-category feedback rounds are accepted to advance the graph to ``completed``, and the
+        instance is discarded — no ``session_id`` is persisted. ``None`` (no destination) is a valid
+        empty outcome with a warning.
+        """
         if trip_request is None:
             return DomainSearchResult(
                 suggestions=[],
                 warnings=["activities need a destination; skipped"],
             )
 
-        agent = ActivitiesAgent(self._agent_settings)  # fresh session; discarded when run returns
+        agent = ActivitiesAgent(self._agent_settings)  # fresh session; discarded when this returns
         response = _require_ok(agent.handle({"action": "start", "trip": trip_request}))
 
         suggestions: list[Suggestion] = []
@@ -72,8 +106,8 @@ class ActivitiesAdapter(Agent):
         while response.get("status") == "awaiting_feedback" and turns < MAX_FEEDBACK_TURNS:
             turns += 1
             category, names = _collect_round(response, suggestions, per_category)
-            # No user feedback in a round-1 search: accept the category's picks and advance. The
-            # user's own wanted/unwanted loop is tripper's refine (Batch 13), not this conversation.
+            # The wanted/unwanted marks were folded into the ``start`` request up front (refine) or
+            # are absent (search); here we just accept each category's picks to advance the graph.
             response = _require_ok(
                 agent.handle(
                     {
@@ -114,6 +148,50 @@ def _to_trip_request(trip: TripInput) -> dict[str, Any] | None:
     if trip.interests:
         request["interests"] = [interest.value for interest in trip.interests]
     return request
+
+
+def _fold_feedback(trip_request: dict[str, Any], prior: Sequence[PriorCandidate]) -> None:
+    """Fold the wanted/unwanted marks into a fresh ``start`` request, in place (``spec/agents.md``).
+
+    ``interests`` gains the categories of liked activities and drops those of disliked ones (only
+    categories that are known :class:`InterestGroup`s; the agent groups by these). ``notes`` names
+    the liked/disliked activities in free text, which the agent reads even when a category is not a
+    mappable group. If every interest is dropped the key is omitted so the agent re-defaults.
+    """
+    liked_names = [c.item.title for c in prior if c.feedback is Feedback.liked]
+    disliked_names = [c.item.title for c in prior if c.feedback is Feedback.disliked]
+    if not liked_names and not disliked_names:
+        return
+
+    interests = {InterestGroup(i) for i in trip_request.get("interests", [])}
+    interests |= {g for c in prior if c.feedback is Feedback.liked and (g := _as_interest(c))}
+    interests -= {g for c in prior if c.feedback is Feedback.disliked and (g := _as_interest(c))}
+    if interests:
+        # Keep a stable order (the InterestGroup declaration order) for a deterministic request.
+        trip_request["interests"] = [g.value for g in InterestGroup if g in interests]
+    else:
+        trip_request.pop("interests", None)
+
+    notes = [trip_request["notes"]] if trip_request.get("notes") else []
+    if liked_names:
+        notes.append("Prioritize activities like: " + ", ".join(liked_names) + ".")
+    if disliked_names:
+        notes.append("Avoid activities like: " + ", ".join(disliked_names) + ".")
+    trip_request["notes"] = " ".join(notes)
+
+
+def _as_interest(candidate: PriorCandidate) -> InterestGroup | None:
+    """The candidate's category as an :class:`InterestGroup`, or ``None`` when it maps to none.
+
+    The category is stored on the candidate's ``subtitle`` (the adapter set it there), falling back
+    to ``detail.category``; a value that is not one of the 8 groups yields ``None`` (notes still
+    carry its name).
+    """
+    category = candidate.item.subtitle or candidate.item.detail.get("category")
+    try:
+        return InterestGroup(category)
+    except ValueError:
+        return None
 
 
 def _destination(place: Place) -> str | None:

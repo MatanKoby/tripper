@@ -15,10 +15,21 @@ each domain's search run drives. A refine run (Batch 13) reuses it with the feed
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from tripper.contract import Domain, LensName, ResultItem, SelectionMode, TripInput
+from tripper.contract import Domain, Feedback, LensName, ResultItem, SelectionMode, TripInput
+
+
+class RefineNotSupported(NotImplementedError):
+    """Raised by :meth:`Agent.refine` when a domain has no refine path yet.
+
+    The hotel agent's refine (``hotel_finder.refine_sync``) is upstream WIP (``spec/agents.md`` /
+    ``spec/roadmap.md``), so the accommodations adapter inherits this guard: a hotel refinement doc
+    fails cleanly (its ``status`` -> ``error``) instead of the run crashing. Flights and activities
+    override :attr:`Agent.supports_refine` + :meth:`Agent.refine`, so this never fires for them.
+    """
 
 
 @dataclass(frozen=True)
@@ -33,6 +44,23 @@ class Suggestion:
     id: str
     item: ResultItem
     lens: LensName | None = None
+
+
+@dataclass(frozen=True)
+class PriorCandidate:
+    """A prior-round candidate plus the user's feedback, fed into a refine run (``spec/flows.md``).
+
+    The orchestrator reads these off the domain's ``suggested/*`` docs (id, the neutral item, the
+    wanted/unwanted ``feedback`` mark, and the ``lens`` / ``round`` group keys) and hands them to
+    the adapter's :meth:`Agent.refine`, which folds the marks into its agent's request
+    (``spec/agents.md``). ``id`` is the stored doc id (so the orchestrator can later dismiss it).
+    """
+
+    id: str
+    item: ResultItem
+    feedback: Feedback | None = None
+    lens: LensName | None = None
+    round: int = 1
 
 
 @dataclass(frozen=True)
@@ -62,6 +90,10 @@ class Agent(ABC):
     domain: Domain
     #: How many items this domain lets the user select (accommodations: ``single``).
     selection_mode: SelectionMode
+    #: Whether this domain supports the wanted/unwanted refine loop. ``False`` (the default) means
+    #: :meth:`refine` raises :class:`RefineNotSupported`; flights/activities set it ``True``. The
+    #: hotel agent keeps ``False`` until ``refine_sync`` lands upstream (``spec/agents.md``).
+    supports_refine: bool = False
 
     @abstractmethod
     def run(self, trip: TripInput) -> DomainSearchResult:
@@ -73,3 +105,14 @@ class Agent(ABC):
         and any explanation in ``warnings`` (``spec/schema.md``).
         """
         raise NotImplementedError
+
+    def refine(self, trip: TripInput, prior: Sequence[PriorCandidate]) -> DomainSearchResult:
+        """Re-run the agent with the user's wanted/unwanted marks folded in (``spec/flows.md``).
+
+        The result shape is identical to :meth:`run` (the orchestrator appends it as the next
+        round); the same transport-failure-vs-empty-outcome contract applies. Flights and activities
+        fold the marks into their request and re-run search (no dedicated agent refine entry point,
+        ``spec/agents.md``); the default here raises :class:`RefineNotSupported` so a domain with no
+        refine path (hotel, until ``refine_sync``) fails cleanly rather than silently doing nothing.
+        """
+        raise RefineNotSupported(f"{self.domain.value} refine is not available yet")

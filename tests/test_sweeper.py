@@ -136,3 +136,106 @@ def test_empty_sweep_is_a_noop(db) -> None:
     report = sweep(db)
 
     assert report == type(report)()  # all-zero report
+
+
+# --- refinement docs join the sweep (Batch 13) ------------------------------------------------
+
+
+def _domain_with_refinement(
+    db, *, uid: str = "u1", domain_status: str, refine: dict
+) -> tuple[object, object]:
+    """Seed a domain doc + a ``refinements/{id}`` under it; return (domain_ref, refinement_ref)."""
+    trip = db.collection("users").document(uid).collection("trips").document()
+    trip.set({"input": VALID_INPUT, "status": "active"})
+    domain_ref = trip.collection("domains").document("accommodations")
+    domain_ref.set(
+        {
+            "domain": "accommodations",
+            "agentStatus": domain_status,
+            "leaseExpiresAt": _now() + timedelta(minutes=10),
+        }
+    )
+    refinement_ref = domain_ref.collection("refinements").document("rf1")
+    refinement_ref.set(refine)
+    return domain_ref, refinement_ref
+
+
+def test_stale_running_refinement_is_requeued(db) -> None:
+    domain_ref, refinement_ref = _domain_with_refinement(
+        db,
+        domain_status="running",
+        refine={"round": 2, "status": "running", "attempts": 1, "maxAttempts": 3,
+                "leaseExpiresAt": _now() - timedelta(minutes=1)},
+    )
+
+    report = sweep(db)
+
+    assert refinement_ref.get().to_dict()["status"] == "pending"
+    assert report.scanned == 1 and report.requeued == 1
+    # A re-queue leaves the (still-live-lease) domain alone; only a terminal failure resets it.
+    assert domain_ref.get().to_dict()["agentStatus"] == "running"
+
+
+def test_exhausted_refinement_errors_and_resets_the_domain(db) -> None:
+    domain_ref, refinement_ref = _domain_with_refinement(
+        db,
+        domain_status="running",  # the refine had set the domain busy
+        refine={"round": 2, "status": "running", "attempts": 3, "maxAttempts": 3,
+                "leaseExpiresAt": _now() - timedelta(minutes=1)},
+    )
+
+    report = sweep(db)
+
+    refinement = refinement_ref.get().to_dict()
+    assert refinement["status"] == "error"
+    assert refinement["error"]["kind"] == "LeaseExpired"
+    assert report.failed == 1
+    # A dead refine must not strand the domain as perpetually "thinking".
+    assert domain_ref.get().to_dict()["agentStatus"] == "idle"
+
+
+def test_terminal_refinement_leaves_an_idle_domain_untouched(db) -> None:
+    # If the domain is not running (e.g. already settled), the terminal refine does not touch it.
+    domain_ref, refinement_ref = _domain_with_refinement(
+        db,
+        domain_status="idle",
+        refine={"round": 2, "status": "running", "attempts": 3, "maxAttempts": 3,
+                "leaseExpiresAt": _now() - timedelta(minutes=1)},
+    )
+
+    sweep(db)
+
+    assert refinement_ref.get().to_dict()["status"] == "error"
+    assert domain_ref.get().to_dict()["agentStatus"] == "idle"
+
+
+def test_live_lease_refinement_is_left_alone(db) -> None:
+    _domain_ref, refinement_ref = _domain_with_refinement(
+        db,
+        domain_status="running",
+        refine={"round": 2, "status": "running", "attempts": 1, "maxAttempts": 3,
+                "leaseExpiresAt": _now() + timedelta(minutes=10)},
+    )
+
+    report = sweep(db)
+
+    assert refinement_ref.get().to_dict()["status"] == "running"
+    assert report.scanned == 0
+
+
+def test_one_pass_reaps_both_domains_and_refinements(db) -> None:
+    stale = _now() - timedelta(minutes=1)
+    stuck_search = _running(db, uid="alice", lease=stale, attempts=1, maxAttempts=3)
+    _domain_ref, stuck_refine = _domain_with_refinement(
+        db,
+        uid="bob",
+        domain_status="running",
+        refine={"round": 2, "status": "running", "attempts": 1, "maxAttempts": 3,
+                "leaseExpiresAt": stale},
+    )
+
+    report = sweep(db)
+
+    assert report.scanned == 2 and report.requeued == 2  # one search + one refine, both re-queued
+    assert stuck_search.get().to_dict()["agentStatus"] == "pending"
+    assert stuck_refine.get().to_dict()["status"] == "pending"

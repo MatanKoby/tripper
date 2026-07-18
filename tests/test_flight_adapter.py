@@ -16,14 +16,23 @@ import pytest
 
 pytest.importorskip("flight_finder", reason="flight-finder agent submodule not installed")
 
-from tripper.agents.base import DomainSearchResult  # noqa: E402
+from tripper.agents.base import DomainSearchResult, PriorCandidate  # noqa: E402
 from tripper.agents.flight_adapter import (  # noqa: E402
     FlightAdapter,
+    _fold_budget,
     _to_request,
     _to_result,
 )
 from tripper.config import Settings  # noqa: E402
-from tripper.contract import Domain, PricePer, SelectionMode, TripInput  # noqa: E402
+from tripper.contract import (  # noqa: E402
+    Domain,
+    Feedback,
+    Price,
+    PricePer,
+    ResultItem,
+    SelectionMode,
+    TripInput,
+)
 from tripper.orchestrator import fan_out, run_search  # noqa: E402
 
 BASE_INPUT: dict = {
@@ -49,6 +58,7 @@ def test_domain_and_selection_mode() -> None:
     adapter = FlightAdapter(_settings())
     assert adapter.domain is Domain.flights
     assert adapter.selection_mode is SelectionMode.single
+    assert adapter.supports_refine is True  # flights refine = a re-run with the budget folded in
 
 
 # --- request mapping --------------------------------------------------------------------------
@@ -183,6 +193,51 @@ def test_run_without_origin_is_a_clean_empty_outcome() -> None:
     result = FlightAdapter(_settings()).run(_trip(origin=None))
     assert result.suggestions == []
     assert result.warnings  # explains why flights were skipped
+
+
+# --- refine (feedback folded into the fare budget) --------------------------------------------
+
+
+def _priced(market: str, amount: float, feedback: Feedback) -> PriorCandidate:
+    item = ResultItem(title=market, price=Price(amount=amount, per=PricePer.total, currency="USD"))
+    return PriorCandidate(id=market, item=item, feedback=feedback)
+
+
+def test_fold_budget_caps_below_the_cheapest_disliked() -> None:
+    prior = [_priced("us", 1200.0, Feedback.disliked), _priced("de", 1500.0, Feedback.disliked)]
+    # The cap is min(disliked) - 1 == 1199, applied only when it tightens the budget:
+    assert _fold_budget(2000, prior) == 1199.0  # looser budget is pulled down to the cap
+    assert _fold_budget(900, prior) == 900  # an already-tighter budget is left as is
+    assert _fold_budget(None, prior) == 1199.0  # no budget -> adopt the cap
+
+
+def test_fold_budget_floors_at_the_priciest_liked() -> None:
+    prior = [_priced("fr", 700.0, Feedback.liked)]
+    assert _fold_budget(500, prior) == 700.0  # never cap a liked fare out of range
+    assert _fold_budget(None, prior) == 700.0
+
+
+def test_fold_budget_unchanged_without_priced_marks() -> None:
+    assert _fold_budget(900, []) == 900
+    assert _fold_budget(None, []) is None
+
+
+def test_refine_re_runs_with_a_tighter_budget() -> None:
+    adapter = FlightAdapter(_settings())
+    base = adapter.run(_trip())
+    cheapest = min(s.item.price.amount for s in base.suggestions)
+    # Dislike the cheapest offer: the budget is pulled below it, so nothing is within budget now.
+    prior = [
+        PriorCandidate(id=s.id, item=s.item, feedback=Feedback.disliked)
+        for s in base.suggestions
+        if s.item.price.amount == cheapest
+    ]
+
+    refined = adapter.refine(_trip(), prior)
+
+    assert isinstance(refined, DomainSearchResult)
+    assert refined.suggestions  # same simulated market offers, re-priced against the tighter budget
+    assert refined.counts["within_budget"] == 0
 
 
 # --- fan-out + search integration (emulator-backed; skips without one) -------------------------

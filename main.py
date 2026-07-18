@@ -6,14 +6,16 @@ event to the orchestrator. The reliability machinery lives in ``tripper.orchestr
 ``tripper.jobs``; agent wiring is isolated in :func:`build_active_agents` so registering an adapter
 never touches the orchestrator core.
 
-Two create-triggered functions drive the M2 fan-out (``spec/flows.md``):
+Three create-triggered functions drive the M2 flow (``spec/flows.md``):
 
 - :func:`orchestrate` — on a **trip** create, fan out to one ``domains/{domain}`` doc per active
   agent (and mark the trip ``active``).
 - :func:`search` — on a **domain** create, run that domain's search and write its ``suggested``.
+- :func:`refine` — on a **refinement** create, re-run that domain's agent with the feedback folded
+  in and append the next round of ``suggested``.
 
 It also registers the scheduled sweeper (``spec/flows.md`` under *Sweeper*), which recovers domain
-search runs stranded in ``running`` after a hard crash; its recovery logic lives in
+search runs and refine runs stranded in ``running`` after a hard crash; its recovery logic lives in
 ``tripper.sweeper``.
 """
 
@@ -28,7 +30,7 @@ from tripper.agents.base import Agent
 from tripper.config import Settings
 from tripper.contract import TripError
 from tripper.jobs import write_run_error
-from tripper.orchestrator import fan_out, run_search
+from tripper.orchestrator import fan_out, run_refine, run_search
 from tripper.sweeper import sweep
 
 logging.basicConfig(level=logging.INFO)
@@ -41,6 +43,9 @@ TRIP_DOCUMENT = "users/{userId}/trips/{tripId}"
 
 #: The per-domain search trigger: one ``domains/{domain}`` create fires that domain's run.
 DOMAIN_DOCUMENT = "users/{userId}/trips/{tripId}/domains/{domain}"
+
+#: The refine trigger: one ``refinements/{refineId}`` create fires that domain's refine run.
+REFINEMENT_DOCUMENT = "users/{userId}/trips/{tripId}/domains/{domain}/refinements/{refineId}"
 
 #: How often the sweeper reaps stale ``running`` runs (``spec/flows.md``: "every minute or few").
 #: Well inside the 15-min lease budget, so recovery latency stays a few minutes at most.
@@ -99,6 +104,20 @@ def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> N
     doc_ref = db.document(snapshot.reference.path)
     settings = Settings()
     run_search(db, doc_ref, agents_by_domain=_agents_by_domain(build_active_agents(settings)))
+
+
+@firestore_fn.on_document_created(document=REFINEMENT_DOCUMENT)
+def refine(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
+    """Fire a domain's refine run when the client creates a ``refinements/{refineId}`` doc."""
+    snapshot = event.data
+    if snapshot is None:
+        logger.warning("refinement onCreate event carried no snapshot; ignoring")
+        return
+
+    db = firestore.client()
+    doc_ref = db.document(snapshot.reference.path)
+    settings = Settings()
+    run_refine(db, doc_ref, agents_by_domain=_agents_by_domain(build_active_agents(settings)))
 
 
 @scheduler_fn.on_schedule(schedule=SWEEP_SCHEDULE)

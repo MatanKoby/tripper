@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -188,6 +188,51 @@ def _suggested_payload(suggestion: Any, rank: int, round: int) -> dict[str, Any]
     ).to_dict()
     doc["createdAt"] = firestore.SERVER_TIMESTAMP
     return doc
+
+
+def write_refine_result(
+    domain_ref: Any,
+    refinement_ref: Any,
+    result: DomainSearchResult,
+    *,
+    round: int,
+    dismiss_ids: Sequence[str] = (),
+) -> None:
+    """Persist a completed refine run: append its round, retire the unwanted, settle both docs.
+
+    Unlike a search (``write_search_result``), a refine **appends** — its candidate doc ids are
+    qualified with ``round`` so this round's picks never clobber a prior round's (both the flight
+    and activities agents reuse ids across runs, ``spec/agents.md``); the FE groups by ``round``.
+    Order of writes mirrors a search: candidates first, then the disliked prior candidates hidden
+    (``dismissed: true``, not deleted, ``spec/flows.md``), then the domain returns to
+    ``agentStatus: "idle"`` at the new ``round`` with the latest run metadata, and finally the
+    refinement doc is marked ``done``. So an ``idle`` domain always has the appended round present.
+    """
+    suggested = domain_ref.collection("suggested")
+    for rank, suggestion in enumerate(result.suggestions):
+        suggested.document(_refine_doc_id(suggestion.id, round)).set(
+            _suggested_payload(suggestion, rank, round)
+        )
+    for suggestion_id in dismiss_ids:
+        suggested.document(suggestion_id).update(
+            {"dismissed": True, "updatedAt": firestore.SERVER_TIMESTAMP}
+        )
+    domain_ref.update(
+        {
+            "agentStatus": "idle",
+            "round": round,
+            "diagnostics": result.diagnostics,
+            "warnings": result.warnings,
+            "counts": result.counts,
+            "updatedAt": firestore.SERVER_TIMESTAMP,
+        }
+    )
+    refinement_ref.update({"status": "done", "updatedAt": firestore.SERVER_TIMESTAMP})
+
+
+def _refine_doc_id(suggestion_id: str, round: int) -> str:
+    """A round-qualified ``suggested`` doc id, so an appended round never clobbers a prior one."""
+    return f"{suggestion_id}::r{round}"
 
 
 def write_run_error(doc_ref: Any, error: TripError, *, status_field: str = "status") -> None:

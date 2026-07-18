@@ -27,7 +27,7 @@ from hotel_finder.contracts import (  # noqa: E402 - after importorskip
 )
 from hotel_finder.models import Amenity  # noqa: E402
 
-from tripper.agents.base import DomainSearchResult  # noqa: E402
+from tripper.agents.base import DomainSearchResult, RefineNotSupported  # noqa: E402
 from tripper.agents.hotel_adapter import (  # noqa: E402
     HotelAdapter,
     _agent_settings,
@@ -69,6 +69,15 @@ def test_domain_and_selection_mode() -> None:
     adapter = HotelAdapter(_settings())
     assert adapter.domain is Domain.accommodations
     assert adapter.selection_mode is SelectionMode.single
+
+
+def test_hotel_refine_is_gated_until_refine_sync_lands() -> None:
+    # Hotel refine is upstream WIP (spec/agents.md, spec/roadmap.md): the adapter advertises no
+    # refine path and its refine raises cleanly, so a hotel refinement doc errors, never crashes.
+    adapter = HotelAdapter(_settings())
+    assert adapter.supports_refine is False
+    with pytest.raises(RefineNotSupported):
+        adapter.refine(_trip(), [])
 
 
 def test_guests_expand_into_a_single_room_when_rooms_is_null() -> None:
