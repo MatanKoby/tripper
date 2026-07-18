@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 14 — Frontend: per-domain read model, raw-JSON render & form
+- Owner: claude
+- Started: 2026-07-18 11:56
+
 ## Completed
 
 ### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
