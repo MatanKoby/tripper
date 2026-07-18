@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
+- Owner: claude
+- Started: 2026-07-18 10:32
+
 ## Completed
 
 ### Batch 12 — Backend fan-out & per-domain search run (domain-general)
