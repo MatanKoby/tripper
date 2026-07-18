@@ -2,3 +2,11 @@
 	path = vendor/agents/hotel-finder-agent
 	url = https://github.com/MatanKoby/hotel-finder-agent.git
 	branch = dev
+[submodule "vendor/agents/flight-finder-agent"]
+	path = vendor/agents/flight-finder-agent
+	url = https://github.com/rosenn88/flight-finder-agent.git
+	branch = main
+[submodule "vendor/agents/travel-agent"]
+	path = vendor/agents/travel-agent
+	url = https://github.com/hadar-grimberg/travel-agent.git
+	branch = master
