@@ -19,11 +19,48 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 14 — Frontend: per-domain read model, raw-JSON render & form
 - Owner: claude
 - Started: 2026-07-18 11:56
+- Finished: 2026-07-18 12:16
+- Commit: d73ee13
 
-## Completed
+**What shipped.** The frontend now reads the M2 **per-domain** Firestore model and renders each
+domain independently (`spec/flows.md`, `spec/schema.md`, `spec/ui.md`), replacing the M1 single-doc
+`results` render.
+
+- **`web/src/useJob.ts`** — the single trip-doc listener is replaced by a trip listener **plus**,
+  for each of the three domains, a `domains/{domain}` state-doc listener and a `suggested/*`
+  collection listener (all torn down together on resubmit/unmount). New `JobState` exposes
+  `{ submitting, tripId, trip, domains, submitError }` where `domains` is a per-domain
+  `{ doc, suggested }` record; suggestions are sorted by `round` then `rank`. The client listens to
+  all three domains and never enumerates agents (an inactive one just stays empty).
+- **`web/src/DomainSection.tsx`** (new, replaces `Accommodation.tsx`) — generic section driven by
+  its own `domains/{domain}.agentStatus`: before fan-out / `pending` / `running` → "thinking /
+  warming up"; `idle` → the domain's `suggested` docs dumped as **raw JSON** (`<pre>`); `error` →
+  the message; plus trip-level `status: "error"` (fan-out failure) and `submitError` banners. A
+  styled per-domain renderer is deferred (`spec/roadmap.md`).
+- **`web/src/App.tsx`** — center column maps `DOMAIN_SECTIONS` (Flights / Accommodation /
+  Activities) to a `DomainSection` each; section ids are the `Domain` values so the left-nav
+  anchors match.
+- **Form** (`TripForm.tsx`, `buildTripInput.ts`, `types.ts`) — adds the flights + activities
+  `TripInput` fields: `origin`, `flight_budget_usd`, `activities_budget_usd`, `interests` (the 8
+  `InterestGroup`s), `travel_style` (`TravelStyle`), with new "Flights (optional)" and "Activities
+  (optional)" fieldsets. `types.ts` gains the read-model types (`Domain`, `DomainAgentStatus`,
+  `ResultItem`, `Price`, `SuggestedDoc`, `DomainDoc`, updated `TripDoc`) and the `InterestGroup` /
+  `TravelStyle` / `Domain` enum arrays; the M1 hotel read types (`Pick`/`HotelPayload`/
+  `TripSuggestions`/lens labels) are dropped. Empty optionals are omitted so the adapters apply
+  their defaults. All three `presets.ts` quick-fills now populate the new fields.
+
+**Deferred (Batch 13):** feedback (like/dislike), the per-section Refine button, and selection
+controls. `SuggestedDoc.feedback` is typed but never written yet.
+
+**Verification.** `tsc --noEmit` and `vite build` both clean; the dev server transforms the full
+module graph (App → DomainSection/TripForm/useJob) without error. A true end-to-end submit
+(create trip → fan-out → per-domain `suggested` render) needs the Firebase emulator + backend
+triggers running and was **not** exercised here.
 
 ### Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
 - Owner: claude

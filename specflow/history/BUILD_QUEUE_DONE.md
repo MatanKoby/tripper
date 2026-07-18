@@ -10,6 +10,19 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 14 — Frontend: per-domain read model, raw-JSON render & form
+Rebuilt the frontend on the M2 **per-domain** Firestore model (`spec/flows.md`, `spec/schema.md`,
+`spec/ui.md`), replacing the M1 single-doc `results` render. `web/src/useJob.ts` now listens on the
+trip doc plus, per domain, its `domains/{domain}` state doc and `suggested/*` collection; new
+`DomainSection.tsx` (replacing `Accommodation.tsx`) renders each domain's `suggested` as **raw
+JSON**, gated on that domain's `agentStatus` (before fan-out/pending/running → thinking; idle →
+JSON; error → message). The trip-input form gains the flights + activities `TripInput` fields
+(`origin`, `flight_budget_usd`, `activities_budget_usd`, `interests`, `travel_style`) with new
+fieldsets, `types.ts` gains the read-model types + enum arrays (dropping the M1 hotel read types),
+and all three quick-fill presets populate the new fields. Feedback / refine / selection controls
+stay deferred to Batch 13. Verified with `tsc --noEmit` + `vite build`; end-to-end submit needs the
+emulator + backend and was not run. Key commit `d73ee13`.
+
 ## Batch 15 — Vendor flights + activities agents, adapters & TripInput extension
 Integrated the flights and activities domains so the M2 fan-out activates all three
 (`spec/agents.md`, `spec/schema.md`). Vendored two submodules under `vendor/agents/`:

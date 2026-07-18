@@ -22,25 +22,14 @@ Completed history: [`specflow/history/BUILD_QUEUE_DONE.md`](specflow/history/BUI
 > integrated** — accommodations rebuilt on the new model, and **flights** + **activities** vendored
 > and wired in (`roadmap.md`, `schema.md`, `flows.md`, `agents.md`). The FE renders each domain as
 > **raw JSON per container**; the **feedback / refine loop** lands last. Supersedes the M1 single-doc
-> `results` model (`archive.md`). Suggested order: **14 → 13** (13's *hotel* refine is gated on
-> upstream `refine_sync` while flights/activities refine is not; 11 + 12 + 15 done — the backend
-> now fans out to all three agents).
+> `results` model (`archive.md`). **Batch 13 is the only batch left**: 11 + 12 + 15 built the
+> backend fan-out to all three agents, and 14 shipped the per-domain FE read model + raw-JSON render
+> + extended form. 13's *hotel* refine is gated on upstream `refine_sync` while flights/activities
+> refine is not, so build the flights/activities + FE path first and guard the hotel branch.
 
 Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, do not claim.
 
 ---
-
-### Batch 14 — Frontend: per-domain read model, raw-JSON render & form  (dep: 12; renders 12 + 15 output)
-
-- Replace `web/src/useJob.ts`'s single-doc listener with a trip listener + per-domain `suggested`
-  listeners (`flows.md`).
-- Render **each** domain's `suggested` docs as **raw JSON** in its own container (flights /
-  accommodation / activities); drive each section's state from `domains/{domain}.agentStatus`
-  (`ui.md`).
-- Extend the trip-input form with the new `TripInput` fields — `origin`, `flight_budget_usd`,
-  `activities_budget_usd`, `interests` (the 8 `InterestGroup`s), `travel_style` — and the Quick-fill
-  presets (`schema.md`, `ui.md`).
-- Feedback / refine / selection controls are deferred with the refine loop (Batch 13).
 
 ### Batch 13 — Feedback / refine loop (all domains)  (dep: 12, 15)
 
