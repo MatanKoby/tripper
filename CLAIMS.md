@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 16 — Sweeper recovery redesign + free-tier cost guardrails
+- Owner: claude
+- Started: 2026-08-18 06:04
+
 ## Completed
 
 ### Batch 13 — Feedback / refine loop (all domains)
