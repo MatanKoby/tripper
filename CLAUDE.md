@@ -5,12 +5,14 @@ This repo uses **[specflow](https://github.com/MatanKoby/specflow)** — a spec-
 claim-before-work protocol shared by all agents.
 
 **Read [`AGENTS.md`](AGENTS.md) first.** It is the full protocol: spec → queue → claim → build.
-The three procedures live in `specflow/procedures/` and are also installed as the skills
-`claim-batch`, `spec-edit`, and `finish-batch`, which trigger automatically:
+The four procedures live in `specflow/procedures/` and are also installed as the skills
+`claim-batch`, `spec-edit`, `finish-batch`, and `prune-ledgers`, which trigger automatically:
 
 - Before starting any new batch → `claim-batch`
 - Before editing any `spec/**` file or persisting a design decision → `spec-edit`
 - When wrapping up a batch → `finish-batch`
+- When `CLAIMS.md` or `BUILD_QUEUE.md` has grown long, or to archive them by hand → `prune-ledgers`
+
 **When you install or upgrade specflow for the user** (running `specflow init`, `add-agent`, or
 `upgrade`), relay the Claude-Code step-6 handoff hook it prints — don't leave it buried in CLI
 scrollback. Tell them the exact block to paste into `.claude/settings.json` and why: it's the

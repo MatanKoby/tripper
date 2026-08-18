@@ -39,8 +39,15 @@ Run this when wrapping up. `AGENTS.md` carries only the pointer to this file.
      what shipped + key commit).
    - Drop the batch from any **pick-order pointer** line at the top of `BUILD_QUEUE.md`.
 
+4a. **Prune the ledgers.** Run `specflow/procedures/prune-ledgers.md` (Claude: the `prune-ledgers`
+   skill). `CLAIMS.md` keeps only the 5 most recent `## Completed` entries; the entry you just wrote
+   pushes the oldest one out to `specflow/history/CLAIMS_DONE.md`. Skipping this is how the ledger
+   silently grows into hundreds of lines that every future agent then re-reads. It is mechanical and
+   lossless, so just do it: no stop-and-ask.
+
 5. Commit `meta: complete batch-N` — covering `CLAIMS.md` **+ `BUILD_QUEUE.md` +
-   `specflow/history/BUILD_QUEUE_DONE.md`** — and push.
+   `specflow/history/BUILD_QUEUE_DONE.md`**, plus `specflow/history/CLAIMS_DONE.md` if step 4a
+   archived anything — and push.
 
 ## Hand the context back (if your agent supports context compaction)
 

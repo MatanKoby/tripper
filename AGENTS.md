@@ -57,7 +57,7 @@ message when `commit: user`, and stop before pushing when `push: user`. The defa
 | `BUILD_QUEUE.md` | user | Declares the work (un-done batches, in full). Agents **never** write claim state here. |
 | `specflow/history/BUILD_QUEUE_DONE.md` | shared archive | One-paragraph summaries of completed batches. Append on finish. |
 | `CLAIMS.md` | agents | Active claims + recent completions. The execution-state ledger. |
-| `specflow/history/CLAIMS_DONE.md` | agents | Older completed entries archived from `CLAIMS.md`. Reference-only. |
+| `specflow/history/CLAIMS_DONE.md` | agents | Older completed entries archived from `CLAIMS.md` by `prune-ledgers`. Reference-only. |
 | `AGENTS.md`, `specflow/**` | specflow | Generated mechanism. Overwritten on `specflow upgrade`; don't hand-edit. |
 | source code, assets | shared | Commit with the grammar below. |
 
@@ -83,8 +83,9 @@ don't overlap. When they touch the same files, run them sequentially.
 
 ## The claims file — `CLAIMS.md`
 
-Two sections: `## In progress` (one entry per active claim) and `## Completed` (recent
-finishes, newest first; older history archived to `specflow/history/CLAIMS_DONE.md`). Entry format:
+Two sections: `## In progress` (one entry per active claim) and `## Completed` (recent finishes,
+newest first). It is a **bounded working set, not a log**: `## Completed` holds the **5** newest
+entries and `prune-ledgers` moves the rest to `specflow/history/CLAIMS_DONE.md`. Entry format:
 
 ```
 ### Batch N — <short title>
@@ -112,7 +113,12 @@ don't reconstruct it from memory.
   stale-claim reclaim. **Run before starting any new batch.**
 - **`specflow/procedures/finish-batch.md`** — final commit + SHA, move the entry to
   `## Completed`, summarize, move the batch out of `BUILD_QUEUE.md` into `specflow/history/BUILD_QUEUE_DONE.md`,
-  `meta: complete` commit. **Run when wrapping up.**
+  prune the ledgers, `meta: complete` commit. **Run when wrapping up.**
+- **`specflow/procedures/prune-ledgers.md`** — keep `CLAIMS.md` `## Completed` to its 5 newest
+  entries (older ones move verbatim to `specflow/history/CLAIMS_DONE.md`) and sweep `BUILD_QUEUE.md`
+  of sections whose batch is already completed, dissolved, or absorbed. **`finish-batch` delegates
+  here**; also runnable by hand whenever a ledger has grown long. An install that predates this
+  procedure catches up in one pass.
 
 > Claude Code users: these procedures are also installed as auto-triggering skills.
 
@@ -125,6 +131,7 @@ don't reconstruct it from memory.
 | `meta: complete batch-N` | Marking a batch done |
 | `meta: handoff batch-N` | Mid-batch hand-off (Owner cleared) |
 | `meta: reclaim batch-N from <prior owner>` | Stale-claim recovery |
+| `meta: prune ledgers (N claims entries archived)` | Archiving older `CLAIMS.md` entries |
 | `spec: <change>` | Edits to any `spec/**` file |
 | `meta: <other>` | Tooling / structural changes |
 

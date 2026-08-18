@@ -7,14 +7,15 @@
   },
   "initializedAt": "2026-07-10",
   "kit": "specflow",
-  "kitVersion": "0.1.2",
+  "kitVersion": "0.1.4",
   "managed": {
-    "AGENTS.md": "a728495df9551eff1126949d1e79f189c4ae2e8d3f4ab8a032f9a79368966b85",
-    "CLAUDE.md": "623ebe15c457cc8a159f56246d910b23dd0ed59593201146cc0fcae488182a61",
+    "AGENTS.md": "43f8af27c9632705f8da6ae6c0b76799d5493804e782143ec62009926d7553e9",
+    "CLAUDE.md": "409621d57e5cfb93c52b3aa118c9cc4c06dcae4a4b69f1f6cb1fb8c252838693",
     "specflow/procedures/claim-batch.md": "7b2972b38d3de5f8acb1189cdfc74737b99605536ea89c1bb05e46b3447e3bf7",
-    "specflow/procedures/finish-batch.md": "518b973f2429daf6c6e84ef5a4cf579451a2250bdcca4d21d3596ec5e59f412c",
-    "specflow/procedures/spec-edit.md": "b0f7be26caff933b1b50d36ad8cfa38f356b4c10688b02eee92f126b6a3ef08d"
+    "specflow/procedures/finish-batch.md": "19fa8d33b6ebcdbf24135050e393c340d584b779f1e14c8593152f42067a0816",
+    "specflow/procedures/prune-ledgers.md": "089b333e6f35202dd53bf797411ccc22fab1d1ec8e34d458833b34a8b2d1f971",
+    "specflow/procedures/spec-edit.md": "28b7372db069b40cb6be4809dc44d836ae09cd4a8e39170b29f5ce851fbe03e2"
   },
   "schemaVersion": 1,
-  "upgradedAt": "2026-07-13"
+  "upgradedAt": "2026-08-18"
 }

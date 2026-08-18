@@ -46,11 +46,41 @@ sub-folder (dated snapshots, `YYYY-MM-topic.md`):
 - **Dated snapshots, exempt from the archive rule.** A note records what was true when written;
   don't rewrite it to stay current. Conclusions graduate upward; the note stays as the evidence trail.
 
-## Size watch
+## Size cap: 600 lines, and it stops you
 
-When a file heads past ~600 lines (~20k tokens), consider whether the next bite of content
-wants its own file. A per-folder `README.md` is the index pattern — when a sub-concern grows
-enough to warrant a file, add it and update the README in the same commit.
+The **primary** reason to split a file is that it has started holding **two concerns**. That is the
+concern-matching rule above, and it fires long before any line count. The cap is the backstop for
+the case where a second concern crept in and nobody noticed.
+
+**600 lines is a hard cap, not a nudge.** Before making an edit that would push a `spec/` file past
+its current limit, **stop and ask the user**. Don't split, and don't let it grow, on your own
+authority. The ask has four parts:
+
+1. List the file's **section headlines**, so the user can see where a split would fall.
+2. State whether you believe the file still holds a **single concern**, and if you think it
+   doesn't, name the second one.
+3. Give the cost, in these words: *"The bigger a spec file is, the more I read when I need even
+   just a small chunk from it, so it's best the file is small in advance. But, you're the boss."*
+4. Ask **split or keep**. **Never ask the user to pick a number**: the threshold isn't theirs to
+   set, and "how big should this file be?" is not a question they should have to answer.
+
+**If they choose split**, carve the second concern into its own file as part of the same edit, and
+update the folder's `README.md` index in the same commit. A per-folder `README.md` is the index
+pattern; when a sub-concern grows enough to warrant a file, add it and point at it there.
+
+**If they choose keep**, record the waiver as the **first line of the file**, above the `#` heading:
+
+```
+<!-- specflow:size-ok - user approved this file over 600 lines on 2026-01-31 14:05 UTC; next check at 800. -->
+```
+
+Timestamp in UTC, and set `next check` to the limit you just asked about **plus 200**. That number
+is the file's new limit, so the next ask lands at 800, then 1000, and so on. A waiver silences one
+threshold, never the rule. On a later crossing, rewrite the same line rather than stacking a second.
+
+**Exempt: `archive.md` and anything under `research/`.** Both grow monotonically by design: the
+archive is institutional memory, and research notes are dated snapshots you're told above not to
+rewrite. Neither has a concern to split off, so the ask would have no good answer.
 
 ## Persisting a design decision the user just made
 
