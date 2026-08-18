@@ -18,8 +18,10 @@ There is **no scheduled function**. The sweeper (``spec/flows.md`` under *Sweepe
 of :func:`orchestrate` instead of on a Cloud Scheduler job, so it costs nothing while the app sits
 idle (``spec/architecture.md`` under *Cost stance*); its logic lives in ``tripper.sweeper``.
 
-Every trigger declares explicit ``memory`` / ``timeout_sec`` / ``max_instances`` as a ceiling
-against a runaway, and none sets ``min_instances`` (0 is the default and the discipline).
+Every trigger declares explicit ``memory`` / ``timeout_sec`` / ``max_instances`` / ``concurrency``
+as a ceiling against a runaway, and none sets ``min_instances`` (0 is the default and the
+discipline). Runs are **serialized**: one instance, one request at a time (``spec/flows.md`` under
+*Fan-out concurrency*).
 """
 
 from __future__ import annotations
@@ -62,6 +64,12 @@ RUN_TIMEOUT_SEC = 540
 FAN_OUT_TIMEOUT_SEC = 120
 #: Memory every function runs at today (measured from billing: ~0.24 GiB per invocation).
 FUNCTION_MEMORY = options.MemoryOption.MB_256
+#: One instance, one request at a time, everywhere (``spec/architecture.md`` under *Cost stance*).
+#: The pair matters: ``max_instances=1`` alone would still admit up to 80 concurrent requests into
+#: the single container, so concurrent runs would contend for one 256 MB heap instead of queueing.
+#: Together they serialize the work, which is why a busy moment costs latency and never an OOM.
+MAX_INSTANCES = 1
+CONCURRENCY = 1
 
 
 def build_active_agents(settings: Settings) -> list[Agent]:
@@ -89,7 +97,8 @@ def _agents_by_domain(agents: list[Agent]) -> dict[str, Agent]:
     region=REGION,
     memory=FUNCTION_MEMORY,
     timeout_sec=FAN_OUT_TIMEOUT_SEC,
-    max_instances=2,
+    max_instances=MAX_INSTANCES,
+    concurrency=CONCURRENCY,
 )
 def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire the fan-out when a client creates a trip job under ``users/{userId}/trips``.
@@ -121,7 +130,8 @@ def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None])
     region=REGION,
     memory=FUNCTION_MEMORY,
     timeout_sec=RUN_TIMEOUT_SEC,
-    max_instances=6,
+    max_instances=MAX_INSTANCES,
+    concurrency=CONCURRENCY,
 )
 def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's search run when the fan-out creates its ``domains/{domain}`` doc."""
@@ -141,7 +151,8 @@ def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> N
     region=REGION,
     memory=FUNCTION_MEMORY,
     timeout_sec=RUN_TIMEOUT_SEC,
-    max_instances=6,
+    max_instances=MAX_INSTANCES,
+    concurrency=CONCURRENCY,
 )
 def refine(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's refine run when the client creates a ``refinements/{refineId}`` doc."""
