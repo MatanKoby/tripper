@@ -18,8 +18,10 @@ worker dies. Doc shapes: `schema.md`. Ownership and rules: `access.md`.
 4. Each `domains/{domain}` create fires that domain's **search run**: it claims the domain doc (see
    below), sets `agentStatus: "running"`, runs the agent through its adapter, writes the neutral
    `ResultItem` candidates into `suggested/*` (round 1), then sets `agentStatus: "idle"`.
-5. The frontend's per-domain listener renders `suggested` as each domain finishes, independently (a
-   slow domain never blocks a ready one), showing each domain's state from its `agentStatus`.
+5. The frontend's per-domain listener renders `suggested` as each domain finishes, independently,
+   showing each domain's state from its `agentStatus`. Each domain appears the moment *it* settles,
+   but the runs themselves are serialized (see *Fan-out concurrency*), so a slow domain does delay
+   the ones queued behind it.
 
 There is **no terminal trip state**: a domain settles at `idle` (viewable, refinable), not "done",
 and the user may refine or select at any time.
@@ -48,6 +50,25 @@ suggestion + per-agent `meta`, `schema.md`), and the domain's `selectionStatus` 
 Accommodations is `single` (one selection); the shape supports many for later domains. A selection is
 a client write only: it triggers no backend run, and it survives later refine rounds because it holds
 a snapshot.
+
+## Fan-out concurrency
+
+Every function runs **one instance, one request at a time** (`max_instances = 1`, `concurrency = 1`
+in `main.py`). A trip's three domain runs therefore execute **sequentially**, not in parallel, and a
+second user's trip queues behind the first.
+
+Both settings are needed for that. `max_instances = 1` on its own still admits up to 80 concurrent
+requests into the single container, so the runs would contend for one 256 MB heap and OOM rather
+than queue. Pairing it with `concurrency = 1` makes a busy moment cost **latency instead of
+failure**, which matters more than usual here because the sweep no longer retries anything: an OOM
+is a terminal `error` (see *Sweeper*).
+
+The cost of serializing is smaller than it looks. Fanned-out domains share the one Nebius endpoint,
+so the first run absorbs the cold start and the rest run warm (`architecture.md`); sequential runs
+mostly pay the warm loop, not three cold starts. The ceiling is a deliberate blast-radius limit
+rather than a throughput target (`architecture.md` under *Cost stance*); serving many users at once
+would need per-run memory measured first, then `memory` / `concurrency` / `max_instances` chosen
+together.
 
 ## Idempotent claim & lease (per run)
 

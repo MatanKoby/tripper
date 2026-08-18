@@ -82,8 +82,12 @@ The project must cost **₪0.00**, not "little". Two facts drive every decision 
 
 Standing rules:
 
-- Every function declares explicit `memory`, `timeout_sec`, and `max_instances`. These are a ceiling
-  against a runaway, not a tuning knob.
+- Every function declares explicit `memory`, `timeout_sec`, `max_instances`, and `concurrency`.
+  These are a ceiling against a runaway, not a tuning knob. `max_instances` is **not** a spending
+  dial: with `min_instances = 0` an idle app runs zero instances either way, and a given workload
+  costs roughly the same however it is spread. All functions run at `max_instances = 1` **and**
+  `concurrency = 1`, which serializes runs (`flows.md` under *Fan-out concurrency*); setting only
+  the first would pile concurrent runs into one 256 MB heap instead of queueing them.
 - **Never set `min_instances`.** 0 is the default and the discipline.
 - No polling, no keep-warm pings, no scheduled work. A query that matches nothing still bills a read,
   so periodic "check if anything is stuck" work is never free.
