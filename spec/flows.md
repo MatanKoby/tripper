@@ -53,22 +53,30 @@ a snapshot.
 
 ## Fan-out concurrency
 
-Every function runs **one instance, one request at a time** (`max_instances = 1`, `concurrency = 1`
-in `main.py`). A trip's three domain runs therefore execute **sequentially**, not in parallel, and a
-second user's trip queues behind the first.
+Every function is capped at **one instance** (`max_instances = 1`). A trip's three domain runs share
+that instance **concurrently** (`concurrency = 3` on the search and refine triggers, matching the
+domain count), so they overlap rather than queue; a *second* user's trip waits behind the first.
+Parallel within a trip, serialized across trips.
 
-Both settings are needed for that. `max_instances = 1` on its own still admits up to 80 concurrent
-requests into the single container, so the runs would contend for one 256 MB heap and OOM rather
-than queue. Pairing it with `concurrency = 1` makes a busy moment cost **latency instead of
-failure**, which matters more than usual here because the sweep no longer retries anything: an OOM
-is a terminal `error` (see *Sweeper*).
+The agents are synchronous and I/O-bound (`Agent.run` blocks on the Nebius endpoint), so the three
+runs are threads whose waiting overlaps. The langgraph import is paid once per process, so a
+concurrent run costs only its own state, which is why one 512 MB heap holds three of them.
 
-The cost of serializing is smaller than it looks. Fanned-out domains share the one Nebius endpoint,
-so the first run absorbs the cold start and the rest run warm (`architecture.md`); sequential runs
-mostly pay the warm loop, not three cold starts. The ceiling is a deliberate blast-radius limit
-rather than a throughput target (`architecture.md` under *Cost stance*); serving many users at once
-would need per-run memory measured first, then `memory` / `concurrency` / `max_instances` chosen
-together.
+This is the cheapest shape, not merely the fastest. Billing is allocation x instance-time, so
+overlapping holds the instance for the slowest run instead of the sum of all three. Instance-seconds
+are the binding free-tier resource (`architecture.md` under *Cost stance*), so concurrency is the
+main lever on quota, and memory is not: raising it buys OOM safety out of the resource with the most
+headroom. Avoiding an OOM matters more than usual here because the sweep no longer retries anything,
+so an OOM is a terminal `error` (see *Sweeper*).
+
+The fan-out trigger itself keeps `concurrency = 1` and the smaller heap: it builds adapters and
+writes docs, runs no agent, and finishes in seconds.
+
+Serving many users at once is a separate sizing exercise, and needs per-run memory and CPU
+utilization **measured** before `memory` / `cpu` / `concurrency` / `max_instances` are re-chosen
+together. `cpu` is currently left at its default of a full vCPU, which is the largest known
+inefficiency: most of a run is spent waiting on the endpoint (`architecture.md` under *Cold starts &
+long runs*), and a fraction of a vCPU would cut the binding quota proportionally.
 
 ## Idempotent claim & lease (per run)
 

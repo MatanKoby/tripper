@@ -84,10 +84,16 @@ Standing rules:
 
 - Every function declares explicit `memory`, `timeout_sec`, `max_instances`, and `concurrency`.
   These are a ceiling against a runaway, not a tuning knob. `max_instances` is **not** a spending
-  dial: with `min_instances = 0` an idle app runs zero instances either way, and a given workload
-  costs roughly the same however it is spread. All functions run at `max_instances = 1` **and**
-  `concurrency = 1`, which serializes runs (`flows.md` under *Fan-out concurrency*); setting only
-  the first would pile concurrent runs into one 256 MB heap instead of queueing them.
+  dial: with `min_instances = 0` an idle app runs zero instances either way. All functions run at
+  `max_instances = 1`, with the agent-running triggers at `concurrency = 3` so a trip's domains
+  overlap inside that one instance (`flows.md` under *Fan-out concurrency*).
+- **Instance-seconds are the binding resource, and CPU is what caps them.** Gen2 sets `cpu`
+  independently of `memory`, and it defaults to a **full vCPU** even at 256 MB. Against the monthly
+  free tier (180,000 vCPU-seconds, 360,000 GiB-seconds) that drains CPU quota about **8x faster**
+  than memory quota, leaving headroom to roughly 2 GiB of memory before memory binds instead. So:
+  cut *instance-time* (concurrency, no idle work) to save quota, and never starve `memory` to save
+  a resource that is in surplus. Lowering `cpu` below 1 is the largest unexploited lever, since most
+  of a run is spent waiting on the endpoint; size it from measured utilization, not from a guess.
 - **Never set `min_instances`.** 0 is the default and the discipline.
 - No polling, no keep-warm pings, no scheduled work. A query that matches nothing still bills a read,
   so periodic "check if anything is stuck" work is never free.
