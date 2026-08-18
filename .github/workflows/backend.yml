@@ -89,15 +89,23 @@ jobs:
           LLM_BACKEND: ${{ vars.LLM_BACKEND }}
           NEBIUS_ENDPOINT_MODEL: ${{ vars.NEBIUS_ENDPOINT_MODEL }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          NEBIUS_BASE_URL: ${{ vars.NEBIUS_BASE_URL }}
           NEBIUS_ENDPOINT_URL: ${{ secrets.NEBIUS_ENDPOINT_URL }}
           NEBIUS_ENDPOINT_TOKEN: ${{ secrets.NEBIUS_ENDPOINT_TOKEN }}
+          # Pairs with NEBIUS_ENDPOINT_URL. The serverless transport needs BOTH: the flight and
+          # activities agents fall back to keyless mock output when the id is missing, even though
+          # the url alone makes the config look complete.
+          NEBIUS_ENDPOINT_ID: ${{ secrets.NEBIUS_ENDPOINT_ID }}
+          NEBIUS_API_KEY: ${{ secrets.NEBIUS_API_KEY }}
+          TRAVELPAYOUTS_TOKEN: ${{ secrets.TRAVELPAYOUTS_TOKEN }}
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LITEAPI_API_KEY: ${{ secrets.LITEAPI_API_KEY }}
         run: |
           : > .env
           for key in ENABLED_PROVIDERS SCORER LLM_BACKEND NEBIUS_ENDPOINT_MODEL \
-                     LLM_BASE_URL NEBIUS_ENDPOINT_URL NEBIUS_ENDPOINT_TOKEN \
-                     LLM_API_KEY LITEAPI_API_KEY; do
+                     LLM_BASE_URL NEBIUS_BASE_URL NEBIUS_ENDPOINT_URL \
+                     NEBIUS_ENDPOINT_TOKEN NEBIUS_ENDPOINT_ID NEBIUS_API_KEY \
+                     TRAVELPAYOUTS_TOKEN LLM_API_KEY LITEAPI_API_KEY; do
             value="${!key}"
             if [ -n "$value" ]; then
               printf '%s=%s\n' "$key" "$value" >> .env

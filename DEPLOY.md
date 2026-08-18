@@ -58,6 +58,9 @@ Secrets (Settings → Secrets and variables → Actions → **Secrets**):
 | `DEPLOY_SA` | Deploy **service-account email** the WIF provider impersonates |
 | `NEBIUS_ENDPOINT_URL` | Nebius Ollama serverless endpoint URL (only if using the LLM scorer) |
 | `NEBIUS_ENDPOINT_TOKEN` | Endpoint token, if the endpoint requires one |
+| `NEBIUS_ENDPOINT_ID` | **Required with `NEBIUS_ENDPOINT_URL`.** The serverless transport needs both; with only the URL the flight and activities agents silently fall back to keyless mock output |
+| `NEBIUS_API_KEY` | Per-token OpenAI-compatible key for the activities agent (alternative to the endpoint pair; pairs with the `NEBIUS_BASE_URL` variable) |
+| `TRAVELPAYOUTS_TOKEN` | Live flight pricing; without it the flight agent uses its offline simulated engine |
 | `LLM_API_KEY` | OpenAI-compatible key, if using the `openai` LLM path instead of the endpoint |
 | `LITEAPI_API_KEY` | LiteAPI key, only if `liteapi` is in `ENABLED_PROVIDERS` |
 
@@ -72,6 +75,7 @@ backend uses its keyless defaults (`mock` provider + `heuristic` scorer), which 
 | `LLM_BACKEND` | `auto` | `auto` \| `openai` \| `endpoint` |
 | `NEBIUS_ENDPOINT_MODEL` | — | Endpoint model id |
 | `LLM_BASE_URL` | — | OpenAI-compatible base URL |
+| `NEBIUS_BASE_URL` | — | Base URL for the activities agent's per-token path (pairs with the `NEBIUS_API_KEY` secret) |
 
 Only non-empty values are written to the function env (`spec/architecture.md`: GitHub Secrets are
 the source of truth for backend env vars; no GCP Secret Manager in M1).
