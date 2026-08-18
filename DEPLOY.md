@@ -123,6 +123,18 @@ gcloud firestore databases create --database='(default)' \
   --location=us-central1 --type=firestore-native --project tripper-af0fc
 ```
 
+**A new database must be reseeded.** `firestore.rules` gates every trip and refine create behind
+`accessOk()`, which does a `get()` on `config/access`; a missing doc makes that `get()` fail, so the
+rules **fail closed and deny everything** with "Missing or insufficient permissions"
+(`spec/access.md`). Deploying the rules does not create it. After creating or recreating a database:
+
+```
+python scripts/seed_access.py <your-email>          # mode: allowlist
+```
+
+Check it survived with `db.collection("config").document("access").get().exists`. This is the only
+document the system requires to exist; everything else is created at runtime.
+
 **Artifact Registry needs a cleanup policy.** Each deploy pushes a new container image per function,
 and the images accumulate against 0.5 GB of free storage. Set the policy once:
 
