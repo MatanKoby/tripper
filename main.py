@@ -20,8 +20,8 @@ idle (``spec/architecture.md`` under *Cost stance*); its logic lives in ``trippe
 
 Every trigger declares explicit ``memory`` / ``timeout_sec`` / ``max_instances`` / ``concurrency``
 as a ceiling against a runaway, and none sets ``min_instances`` (0 is the default and the
-discipline). Runs are **serialized**: one instance, one request at a time (``spec/flows.md`` under
-*Fan-out concurrency*).
+discipline). One instance per function; a trip's three domain runs share it concurrently, while a
+second user's trip queues (``spec/flows.md`` under *Fan-out concurrency*).
 """
 
 from __future__ import annotations
@@ -62,14 +62,26 @@ REGION = "us-central1"
 RUN_TIMEOUT_SEC = 540
 #: The fan-out itself runs no agent, only adapter construction plus the domain-doc writes.
 FAN_OUT_TIMEOUT_SEC = 120
-#: Memory every function runs at today (measured from billing: ~0.24 GiB per invocation).
-FUNCTION_MEMORY = options.MemoryOption.MB_256
-#: One instance, one request at a time, everywhere (``spec/architecture.md`` under *Cost stance*).
-#: The pair matters: ``max_instances=1`` alone would still admit up to 80 concurrent requests into
-#: the single container, so concurrent runs would contend for one 256 MB heap instead of queueing.
-#: Together they serialize the work, which is why a busy moment costs latency and never an OOM.
+#: One instance per function, always (``spec/architecture.md`` under *Cost stance*). The ceiling is
+#: a blast radius for a bug, not a spending dial: with ``min_instances`` unset an idle app runs zero
+#: instances at any ceiling.
 MAX_INSTANCES = 1
-CONCURRENCY = 1
+
+#: A trip's domains run **together inside the one instance** (``spec/flows.md`` under *Fan-out
+#: concurrency*). Overlapping them holds the instance for the slowest run rather than the sum of
+#: all three, and instance-seconds are the binding free-tier resource (CPU quota drains ~8x faster
+#: than memory quota here). 3 = the domain count from :func:`build_active_agents`; a second user's
+#: trip queues behind, which is the intended trade.
+RUN_CONCURRENCY = 3
+#: 512 MB so three live agent runs share one heap safely. The langgraph import is paid once per
+#: process, so the marginal cost of a run is its own state. Memory is the abundant quota (headroom
+#: to ~2 GiB before it binds instead of CPU), so this buys OOM safety with the resource we have.
+RUN_MEMORY = options.MemoryOption.MB_512
+
+#: The fan-out builds adapters and writes docs; it runs no agent, so it keeps the smaller heap and
+#: takes trips one at a time (it finishes in seconds, so queueing a second submit costs nothing).
+FAN_OUT_CONCURRENCY = 1
+FAN_OUT_MEMORY = options.MemoryOption.MB_256
 
 
 def build_active_agents(settings: Settings) -> list[Agent]:
@@ -95,10 +107,10 @@ def _agents_by_domain(agents: list[Agent]) -> dict[str, Agent]:
 @firestore_fn.on_document_created(
     document=TRIP_DOCUMENT,
     region=REGION,
-    memory=FUNCTION_MEMORY,
+    memory=FAN_OUT_MEMORY,
     timeout_sec=FAN_OUT_TIMEOUT_SEC,
     max_instances=MAX_INSTANCES,
-    concurrency=CONCURRENCY,
+    concurrency=FAN_OUT_CONCURRENCY,
 )
 def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire the fan-out when a client creates a trip job under ``users/{userId}/trips``.
@@ -128,10 +140,10 @@ def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None])
 @firestore_fn.on_document_created(
     document=DOMAIN_DOCUMENT,
     region=REGION,
-    memory=FUNCTION_MEMORY,
+    memory=RUN_MEMORY,
     timeout_sec=RUN_TIMEOUT_SEC,
     max_instances=MAX_INSTANCES,
-    concurrency=CONCURRENCY,
+    concurrency=RUN_CONCURRENCY,
 )
 def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's search run when the fan-out creates its ``domains/{domain}`` doc."""
@@ -149,10 +161,10 @@ def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> N
 @firestore_fn.on_document_created(
     document=REFINEMENT_DOCUMENT,
     region=REGION,
-    memory=FUNCTION_MEMORY,
+    memory=RUN_MEMORY,
     timeout_sec=RUN_TIMEOUT_SEC,
     max_instances=MAX_INSTANCES,
-    concurrency=CONCURRENCY,
+    concurrency=RUN_CONCURRENCY,
 )
 def refine(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's refine run when the client creates a ``refinements/{refineId}`` doc."""
