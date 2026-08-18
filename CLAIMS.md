@@ -19,6 +19,10 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+### Batch 17 — Structured destination (city + country) in the trip form
+- Owner: claude
+- Started: 2026-08-18 12:23
+
 ## Completed
 
 ### Batch 16 — Sweeper recovery redesign + free-tier cost guardrails
