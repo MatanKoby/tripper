@@ -3,6 +3,69 @@
 Older completed entries archived from `CLAIMS.md`. Reference-only — newest archived batch at
 the top. Move entries here from `CLAIMS.md` `## Completed` when that section grows long.
 
+### Batch 11 — Data model & Firestore config
+- Owner: claude
+- Started: 2026-07-16 19:01
+- Finished: 2026-07-17 05:16
+- Commit: b22578a
+
+**What shipped.** The tripper-owned storage shapes + Firestore config for the M2 per-domain tree
+(`spec/schema.md`, `spec/access.md`), a pure foundation: no agent behavior, Batches 12 (backend
+fan-out/search) and 14 (FE) build on it. **`tripper/contract.py`** gains the neutral, rendering-ready
+`ResultItem` (+ nested `Price`) that all domains share, and the four per-domain Firestore doc models
+`DomainDoc` / `SuggestedDoc` / `SelectedDoc` / `RefinementDoc`, plus the enums `Domain`,
+`DomainAgentStatus` (the domain run lifecycle pending/running/idle/error, distinct from the existing
+`AgentStatus` data-outcome enum), `SelectionMode`, `SelectionStatus`, `RefinementStatus`, `Feedback`,
+`SelectedStatus`, `PricePer`. `SuggestedDoc` subclasses `ResultItem` (schema.md: "all ResultItem
+fields" flat) and adds `lens`/`rank`/`round`/`dismissed`/`feedback`. **Design decisions:** (1) field
+names are the *exact* Firestore keys, camelCase where the doc is camelCase (`agentStatus`,
+`selectionMode`, `selectionStatus`, `suggestionId`), so `_Model.to_dict`/`from_dict` round-trip the
+stored shape with no alias machinery (ruff selects E/F/I/UP/B, no pep8-naming, so camelCase fields
+are lint-clean). (2) Following the M1 precedent (`jobs.py` writes lease/timestamp fields
+imperatively, the pydantic contract models only the payload), the doc models capture durable
+*content*; the reliability/lease fields (`startedAt`/`leaseExpiresAt`/`attempts`/`maxAttempts`/
+`lastError`) and server timestamps (`createdAt`/`updatedAt`) are left to the run machinery in Batch
+12, documented in each model's docstring. **`firestore.rules`** ports `access.md`'s subtree verbatim:
+backend-only `domains` + `suggested` (client may patch **only** `feedback` via
+`diff(...).affectedKeys().hasOnly(["feedback"])`), client-owned `selected`, `accessOk()`-gated
+`refinements` create; the trip-create rule drops the M1 `!("results")` guard (M2 trips carry no
+`results`). **`firestore.indexes.json`** adds three indexes: collection-group sweeper indexes for
+`domains` (`agentStatus` + `leaseExpiresAt`) and `refinements` (`status` + `leaseExpiresAt`), and the
+per-domain ordered `suggested` query index (`dismissed`, `lens`, `score` DESC, `round` DESC,
+COLLECTION scope).
+
+**Scoping decision (why `TripSuggestions` was not deleted).** The queue bullet says "retire the M1
+`TripSuggestions` wrapper". Its *spec* is already archived (`spec/archive.md`, done in `eef5bd0`), but
+the *code* is still consumed by the live M1 orchestrator (`orchestrator.py`, `jobs.py`,
+`hotel_adapter.py`, `base.py`, `sweeper.py`), and `archive.md` states the M1 code "runs this model
+until the DB batch rebuilds it" — that rebuild is **Batch 12** ("Replaces the M1 single-orchestrator
+path"), not 11. Deleting the wrapper here would break the still-live M1 path and leave the tree red
+between batches, contradicting Batch 11's "No agent behavior yet". So the wrapper is **marked legacy**
+(module docstring + a section banner pointing to `archive.md`) and kept importable; **Batch 12 does
+the physical removal** when it replaces the orchestrator that depends on it. Same reasoning kept the
+M1 `trips` sweeper index in `firestore.indexes.json` (the M1 sweeper still queries it until 12).
+
+**Tests / verification.** `tests/test_contract.py` +12 (round-trips of `ResultItem`, `SuggestedDoc`,
+`SelectedDoc`, `DomainDoc` fan-out defaults, `RefinementDoc` default; score-bound, unknown-`per`,
+unknown-`feedback`, and unknown-field rejections). The rules suite was reworked from 15 to **30**:
+dropped the obsolete "create carrying results is denied" case (M2 rule no longer guards it) and added
+the subtree cases — domain read-only vs client write denied; suggested feedback-only patch allowed
+while any non-feedback field or feedback+other is denied, create/delete denied; selected create+delete
+by owner, cross-user denied; refinement `accessOk()`-gated pending create, non-pending denied,
+non-allowlisted denied, client update denied, owner read. All green: `ruff check` clean, `pytest` 62
+passed (was 50), rules `npm test` 30 passed against the emulator loading the real `firestore.rules`,
+`python -m compileall` OK, and `import main` succeeds with both triggers (M1 path intact — no
+orchestrator/`main.py`/`jobs.py` changes).
+
+**`[MANUAL]` prereq for the user.** This batch changed `firestore.rules` **and**
+`firestore.indexes.json`. CI deploys **functions only**; Firestore config deploys from a workstation
+(`DEPLOY.md`). Run `firebase deploy --only firestore --project <GCP_PROJECT>` from an owner
+workstation so the new subtree rules + M2 indexes take effect (the emulator does not enforce composite
+indexes, so the `suggested` and sweeper indexes are unverified until deployed). **Follow-up for Batch
+14:** the `suggested` index fixes the query order — Batch 14's listener must use
+`where('dismissed','==',false).orderBy('lens').orderBy('score','desc').orderBy('round','desc')` to
+match it (adjust the index if the FE needs a different order).
+
 ### Batch 8 — CI/CD (GitHub Actions)
 - Owner: claude
 - Started: 2026-07-13 18:00

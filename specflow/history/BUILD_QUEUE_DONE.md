@@ -10,6 +10,22 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 16 — Sweeper recovery redesign + free-tier cost guardrails
+Retired the scheduled sweeper and put a resource ceiling on every function (`spec/flows.md` under
+*Sweeper*, `spec/architecture.md` under *Cost stance*). `sweep_stuck_jobs` and its Cloud Scheduler
+job are gone; `sweep()` now runs at the head of `orchestrate`, so the backstop costs nothing while
+the app is idle. The reap is **terminal**: a run found `running` past its lease goes straight to
+`error` rather than being re-queued to `pending`, which could never recover anything (every trigger
+is an `onCreate`, the doc already exists, and firebase-functions 0.6.0 exposes no `retry` on
+`FirestoreOptions`, so a re-queued doc parked forever and never aged into the error path). All three
+triggers now declare `region` / `memory` / `timeout_sec` / `max_instances`, and search + refine move
+to the 540s maximum because the previous default 60s timeout was shorter than the Nebius cold start
+the spec budgets for. Driven by a measured finding: the project's only real charge was Firestore
+reads on a *named* database, which gets no free tier, at 12,586 billed reads against just 691
+documents actually read (an empty query still bills one read). Also fixed `.firebaserc`, which named
+a nonexistent project. Key commit `a73c4e1`. Deferred: Firestore TTL on `suggested` / `refinements`,
+and an FE retry control, since a terminal `error` domain is now a dead end until resubmit.
+
 ## Batch 13 — Feedback / refine loop (all domains)
 Shipped the wanted/unwanted feedback + refine loop across all domains, closing milestone **M2**
 (`spec/flows.md`, `spec/agents.md`, `spec/schema.md`, `spec/ui.md`). Added the refine seam to
