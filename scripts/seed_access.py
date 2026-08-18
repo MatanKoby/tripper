@@ -2,7 +2,8 @@
 
 `accessOk()` in firestore.rules does get(config/access); a missing doc makes that get() fail and
 every trip/refine create is denied ("Missing or insufficient permissions"). See spec/access.md.
-The doc is locked from all clients, so it is written with the Admin path (ADC), which bypasses rules.
+The doc is locked from all clients, so it is written with the Admin path (ADC), which bypasses
+the rules.
 
 Usage: python seed_access.py <email> [more emails...]      # allowlist mode (recommended)
        python seed_access.py --open                        # any verified Google account
