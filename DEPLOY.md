@@ -20,10 +20,14 @@ firebase deploy --only functions
 The Firebase CLI is the native deploy path for the `firebase-functions` Python SDK. From the
 decorators in `main.py` it:
 
-- deploys `orchestrate` and wires its Firestore (Eventarc) `onCreate` trigger on
-  `users/{userId}/trips/{tripId}`;
-- deploys `sweep_stuck_jobs` and **creates/updates the Cloud Scheduler job** (`every 5 minutes`),
-  no manual `gcloud scheduler` step.
+- deploys `orchestrate`, `search`, and `refine`, and wires each one's Firestore (Eventarc)
+  `onCreate` trigger;
+- applies each function's declared `region`, `memory`, `timeout_sec`, and `max_instances`.
+
+There is **no scheduled function and no Cloud Scheduler job**. The sweeper runs at the head of the
+trip fan-out instead (`spec/flows.md` under *Sweeper*), which is what keeps the project inside the
+free tier while idle (`spec/architecture.md` under *Cost stance*). A deploy that follows one which
+still had `sweep_stuck_jobs` will delete the old Scheduler job automatically.
 
 **Firestore rules and indexes are deployed from a workstation, not from CI** (see the next section).
 
@@ -75,11 +79,13 @@ the source of truth for backend env vars; no GCP Secret Manager in M1).
 ### GCP prerequisites (provisioned in Batch 1)
 
 Enable these APIs on the project: Cloud Functions, Cloud Run, Cloud Build, Artifact Registry,
-Eventarc, Cloud Scheduler, Firestore, and IAM Service Account Credentials.
+Eventarc, Firestore, and IAM Service Account Credentials. **Cloud Scheduler is not used** (see
+*Cost stance*); only three Scheduler jobs are free per billing account, so leave the quota for
+other projects.
 
 The deploy service account (`DEPLOY_SA`) needs roles sufficient to deploy Gen2 functions:
 `roles/cloudfunctions.developer`, `roles/run.admin`, `roles/cloudbuild.builds.editor`,
-`roles/artifactregistry.writer`, `roles/eventarc.admin`, `roles/cloudscheduler.admin`,
+`roles/artifactregistry.writer`, `roles/eventarc.admin`,
 `roles/serviceusage.serviceUsageConsumer`, and `roles/iam.serviceAccountUser` on the function's
 runtime service account. For the workstation Firestore deploy it also holds `roles/datastore.owner`
 (indexes) and `roles/firebaserules.admin` (rules). The WIF provider must be bound to this repository
@@ -93,6 +99,36 @@ them once as an owner (the CLI prints the exact commands with the concrete SA em
 - compute default service account → `roles/run.invoker` and `roles/eventarc.eventReceiver`
 - eventarc service agent → `roles/eventarc.serviceAgent` (normally auto-granted; add explicitly only
   if the first `orchestrate` deploy 403s on the Eventarc trigger)
+
+## Keeping the deploy free
+
+`spec/architecture.md` under *Cost stance* is the rule; these are the two operational steps behind
+it.
+
+**The Firestore database must be `(default)`.** The free quota applies only to `(default)`; a
+*named* database is billed from the first read, with no free allowance. Tripper's is regional
+`us-central1`. Verify with:
+
+```
+gcloud firestore databases describe --database='(default)' \
+  --project tripper-af0fc --format="value(freeTier)"
+```
+
+It must print `true`. Note that `firebase deploy --only firestore` will **auto-create a missing
+database in the `nam5` multi-region**, with no way to choose the location, and the location is
+permanent. Always create it explicitly first:
+
+```
+gcloud firestore databases create --database='(default)' \
+  --location=us-central1 --type=firestore-native --project tripper-af0fc
+```
+
+**Artifact Registry needs a cleanup policy.** Each deploy pushes a new container image per function,
+and the images accumulate against 0.5 GB of free storage. Set the policy once:
+
+```
+firebase functions:artifacts:setpolicy --days 1 --project tripper-af0fc
+```
 
 ## Frontend — Vercel (Git integration)
 
@@ -112,6 +148,7 @@ Vercel project settings:
 
 `spec/architecture.md` describes the backend deploy as `gcloud functions deploy … --set-env-vars`.
 That wording predates the choice of the `firebase-functions` Python SDK, whose functions are
-deployed with the Firebase CLI (which also wires the Eventarc trigger and the Cloud Scheduler job
-from the decorators — raw `gcloud` would require doing both by hand). This deploy uses the Firebase
+deployed with the Firebase CLI (which also wires the Eventarc triggers and applies the resource
+caps from the decorators, where raw `gcloud` would require doing both by hand). This deploy uses the
+Firebase
 CLI accordingly. Left as a `spec:` follow-up for the user to confirm before amending the spec.

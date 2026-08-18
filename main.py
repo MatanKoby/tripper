@@ -14,9 +14,12 @@ Three create-triggered functions drive the M2 flow (``spec/flows.md``):
 - :func:`refine` — on a **refinement** create, re-run that domain's agent with the feedback folded
   in and append the next round of ``suggested``.
 
-It also registers the scheduled sweeper (``spec/flows.md`` under *Sweeper*), which recovers domain
-search runs and refine runs stranded in ``running`` after a hard crash; its recovery logic lives in
-``tripper.sweeper``.
+There is **no scheduled function**. The sweeper (``spec/flows.md`` under *Sweeper*) runs at the head
+of :func:`orchestrate` instead of on a Cloud Scheduler job, so it costs nothing while the app sits
+idle (``spec/architecture.md`` under *Cost stance*); its logic lives in ``tripper.sweeper``.
+
+Every trigger declares explicit ``memory`` / ``timeout_sec`` / ``max_instances`` as a ceiling
+against a runaway, and none sets ``min_instances`` (0 is the default and the discipline).
 """
 
 from __future__ import annotations
@@ -24,7 +27,7 @@ from __future__ import annotations
 import logging
 
 from firebase_admin import firestore, initialize_app
-from firebase_functions import firestore_fn, scheduler_fn
+from firebase_functions import firestore_fn, options
 
 from tripper.agents.base import Agent
 from tripper.config import Settings
@@ -33,7 +36,9 @@ from tripper.jobs import write_run_error
 from tripper.orchestrator import fan_out, run_refine, run_search
 from tripper.sweeper import sweep
 
-logging.basicConfig(level=logging.INFO)
+# WARNING, not INFO: Cloud Logging's free allotment is per billing account, not per project
+# (``spec/architecture.md`` under *Cost stance*).
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger("tripper.main")
 
 initialize_app()
@@ -47,9 +52,16 @@ DOMAIN_DOCUMENT = "users/{userId}/trips/{tripId}/domains/{domain}"
 #: The refine trigger: one ``refinements/{refineId}`` create fires that domain's refine run.
 REFINEMENT_DOCUMENT = "users/{userId}/trips/{tripId}/domains/{domain}/refinements/{refineId}"
 
-#: How often the sweeper reaps stale ``running`` runs (``spec/flows.md``: "every minute or few").
-#: Well inside the 15-min lease budget, so recovery latency stays a few minutes at most.
-SWEEP_SCHEDULE = "every 5 minutes"
+#: Region for every function (``spec/architecture.md``), matching Firestore's own location.
+REGION = "us-central1"
+#: Worst-case run budget: a Nebius cold start (2 to 3 min) plus the agent loop, capped at the
+#: event-triggered Gen2 maximum (``spec/architecture.md`` under *Cold starts & long runs*). The
+#: 15-min ``jobs.LEASE_BUDGET`` deliberately outlives it, so a timeout kill is always reapable.
+RUN_TIMEOUT_SEC = 540
+#: The fan-out itself runs no agent, only adapter construction plus the domain-doc writes.
+FAN_OUT_TIMEOUT_SEC = 120
+#: Memory every function runs at today (measured from billing: ~0.24 GiB per invocation).
+FUNCTION_MEMORY = options.MemoryOption.MB_256
 
 
 def build_active_agents(settings: Settings) -> list[Agent]:
@@ -72,9 +84,19 @@ def _agents_by_domain(agents: list[Agent]) -> dict[str, Agent]:
     return {agent.domain.value: agent for agent in agents}
 
 
-@firestore_fn.on_document_created(document=TRIP_DOCUMENT)
+@firestore_fn.on_document_created(
+    document=TRIP_DOCUMENT,
+    region=REGION,
+    memory=FUNCTION_MEMORY,
+    timeout_sec=FAN_OUT_TIMEOUT_SEC,
+    max_instances=2,
+)
 def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
-    """Fire the fan-out when a client creates a trip job under ``users/{userId}/trips``."""
+    """Fire the fan-out when a client creates a trip job under ``users/{userId}/trips``.
+
+    This is also where the sweeper rides (``spec/flows.md`` under *Sweeper*): a trip create is the
+    one moment stale runs start to matter, and it keeps the sweep off a Cloud Scheduler job.
+    """
     snapshot = event.data
     if snapshot is None:
         logger.warning("trip onCreate event carried no snapshot; ignoring")
@@ -82,6 +104,8 @@ def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None])
 
     db = firestore.client()
     doc_ref = db.document(snapshot.reference.path)
+    # Ahead of Settings(), so a config error cannot also block recovery of earlier stranded runs.
+    _sweep_safely(db)
     settings = Settings()
     try:
         fan_out(db, doc_ref, agents=build_active_agents(settings))
@@ -92,7 +116,13 @@ def orchestrate(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None])
         _mark_trip_error(doc_ref, exc)
 
 
-@firestore_fn.on_document_created(document=DOMAIN_DOCUMENT)
+@firestore_fn.on_document_created(
+    document=DOMAIN_DOCUMENT,
+    region=REGION,
+    memory=FUNCTION_MEMORY,
+    timeout_sec=RUN_TIMEOUT_SEC,
+    max_instances=6,
+)
 def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's search run when the fan-out creates its ``domains/{domain}`` doc."""
     snapshot = event.data
@@ -106,7 +136,13 @@ def search(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> N
     run_search(db, doc_ref, agents_by_domain=_agents_by_domain(build_active_agents(settings)))
 
 
-@firestore_fn.on_document_created(document=REFINEMENT_DOCUMENT)
+@firestore_fn.on_document_created(
+    document=REFINEMENT_DOCUMENT,
+    region=REGION,
+    memory=FUNCTION_MEMORY,
+    timeout_sec=RUN_TIMEOUT_SEC,
+    max_instances=6,
+)
 def refine(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> None:
     """Fire a domain's refine run when the client creates a ``refinements/{refineId}`` doc."""
     snapshot = event.data
@@ -120,16 +156,20 @@ def refine(event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None]) -> N
     run_refine(db, doc_ref, agents_by_domain=_agents_by_domain(build_active_agents(settings)))
 
 
-@scheduler_fn.on_schedule(schedule=SWEEP_SCHEDULE)
-def sweep_stuck_jobs(event: scheduler_fn.ScheduledEvent) -> None:
-    """Scheduled backstop: recover domain search runs stranded in ``running`` past their lease.
+def _sweep_safely(db: object) -> None:
+    """Reap stranded runs ahead of a fan-out; a failure here never blocks the trip.
 
-    Region defaults to ``us-central1`` (``spec/architecture.md``), matching the orchestrator and the
-    rest of the GCP footprint; the Cloud Scheduler job is created by the deploy (Batch 8).
+    The sweep is a backstop (``spec/flows.md`` under *Sweeper*), so it must not take down the work
+    it runs in front of. Riding on the trip create is what makes it free: no Cloud Scheduler job,
+    and no Firestore reads while the app sits idle (``spec/architecture.md`` under *Cost stance*).
     """
-    db = firestore.client()
-    report = sweep(db)
-    logger.info("sweep_stuck_jobs done: %s", report)
+    try:
+        report = sweep(db)
+    except Exception:
+        logger.exception("opportunistic sweep failed; continuing with fan-out")
+        return
+    if report.failed:
+        logger.warning("sweep drove %d stranded run(s) to error", report.failed)
 
 
 def _mark_trip_error(doc_ref: object, exc: BaseException) -> None:

@@ -1,11 +1,12 @@
 name: Deploy backend
 
-# Deploys the tripper backend to Google Cloud Functions (Gen2, us-central1) and pushes the
-# Firestore security rules + indexes. Uses the Firebase CLI, which is the native deploy path for
-# the firebase-functions Python SDK: from the decorators in main.py it provisions the Firestore
-# (Eventarc) onCreate trigger for `orchestrate` AND creates/updates the Cloud Scheduler job for
-# `sweep_stuck_jobs` automatically (spec/architecture.md, spec/flows.md). See DEPLOY.md for the
-# required secrets/variables, GCP APIs, and service-account roles.
+# Deploys the tripper backend to Google Cloud Functions (Gen2, us-central1). Uses the Firebase CLI,
+# which is the native deploy path for the firebase-functions Python SDK: from the decorators in
+# main.py it provisions each Firestore (Eventarc) onCreate trigger and applies the declared region,
+# memory, timeout_sec and max_instances (spec/architecture.md, spec/flows.md). There is no scheduled
+# function and no Cloud Scheduler job (spec/architecture.md under Cost stance). Firestore rules and
+# indexes are NOT deployed here; see DEPLOY.md, which also lists the required secrets/variables,
+# GCP APIs, and service-account roles.
 
 on:
   push:

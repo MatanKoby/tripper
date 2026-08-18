@@ -38,40 +38,40 @@ def _running(db, *, uid: str = "u1", lease: datetime, attempts: int = 1, **extra
     )
 
 
-# --- re-queue vs terminal error ---------------------------------------------------------------
+# --- terminal reap: a stale run always errors, it is never re-queued ---------------------------
 
 
-def test_stale_running_is_requeued_when_attempts_remain(db) -> None:
+def test_stale_running_becomes_terminal_error(db) -> None:
     ref = _running(db, lease=_now() - timedelta(minutes=1), attempts=1, maxAttempts=3)
 
     report = sweep(db)
 
     data = ref.get().to_dict()
-    assert data["agentStatus"] == "pending"
-    assert data["attempts"] == 1  # sweeper does not bump attempts; the next claim will
-    assert "error" not in data
-    assert report.scanned == 1 and report.requeued == 1 and report.failed == 0
+    # Attempts remaining is irrelevant. Nothing can re-fire an onCreate trigger, so a re-queue to
+    # "pending" would park the doc forever (``spec/flows.md`` under *Sweeper*).
+    assert data["agentStatus"] == "error"
+    assert data["error"]["kind"] == "LeaseExpired"
+    assert data["lastError"] == data["error"]["message"]
+    assert data["attempts"] == 1  # the sweeper never bumps attempts
+    assert report.scanned == 1 and report.failed == 1 and report.skipped == 0
 
 
-def test_exhausted_attempts_becomes_terminal_error(db) -> None:
+def test_exhausted_attempts_also_becomes_terminal_error(db) -> None:
     ref = _running(db, lease=_now() - timedelta(minutes=1), attempts=3, maxAttempts=3)
 
     report = sweep(db)
 
-    data = ref.get().to_dict()
-    assert data["agentStatus"] == "error"
-    assert data["error"]["kind"] == "LeaseExpired"
-    assert data["lastError"] == data["error"]["message"]
-    assert report.scanned == 1 and report.failed == 1 and report.requeued == 0
+    assert ref.get().to_dict()["agentStatus"] == "error"
+    assert report.scanned == 1 and report.failed == 1
 
 
-def test_missing_max_attempts_falls_back_to_default(db) -> None:
-    # No maxAttempts on the doc: sweep falls back to DEFAULT_MAX_ATTEMPTS (3); attempts=2 requeues
+def test_missing_max_attempts_still_errors(db) -> None:
+    # maxAttempts no longer gates the reap, so a doc without it is reaped like any other.
     ref = _running(db, lease=_now() - timedelta(minutes=1), attempts=2)
 
     sweep(db)
 
-    assert ref.get().to_dict()["agentStatus"] == "pending"
+    assert ref.get().to_dict()["agentStatus"] == "error"
 
 
 # --- the guard: what the sweep must NOT touch -------------------------------------------------
@@ -119,15 +119,15 @@ def test_running_without_lease_is_not_reaped(db) -> None:
 def test_sweep_spans_users_and_partitions_outcomes(db) -> None:
     stale = _now() - timedelta(minutes=2)
     live = _now() + timedelta(minutes=5)
-    requeue_a = _running(db, uid="alice", lease=stale, attempts=1, maxAttempts=3)
+    fail_a = _running(db, uid="alice", lease=stale, attempts=1, maxAttempts=3)
     fail_b = _running(db, uid="bob", lease=stale, attempts=3, maxAttempts=3)
     healthy_c = _running(db, uid="carol", lease=live, attempts=1, maxAttempts=3)
 
     report = sweep(db)
 
     assert report.scanned == 2  # only the two expired ones across the collection group
-    assert report.requeued == 1 and report.failed == 1
-    assert requeue_a.get().to_dict()["agentStatus"] == "pending"
+    assert report.failed == 2 and report.skipped == 0
+    assert fail_a.get().to_dict()["agentStatus"] == "error"
     assert fail_b.get().to_dict()["agentStatus"] == "error"
     assert healthy_c.get().to_dict()["agentStatus"] == "running"
 
@@ -160,7 +160,7 @@ def _domain_with_refinement(
     return domain_ref, refinement_ref
 
 
-def test_stale_running_refinement_is_requeued(db) -> None:
+def test_stale_refinement_with_attempts_left_still_errors(db) -> None:
     domain_ref, refinement_ref = _domain_with_refinement(
         db,
         domain_status="running",
@@ -170,10 +170,10 @@ def test_stale_running_refinement_is_requeued(db) -> None:
 
     report = sweep(db)
 
-    assert refinement_ref.get().to_dict()["status"] == "pending"
-    assert report.scanned == 1 and report.requeued == 1
-    # A re-queue leaves the (still-live-lease) domain alone; only a terminal failure resets it.
-    assert domain_ref.get().to_dict()["agentStatus"] == "running"
+    assert refinement_ref.get().to_dict()["status"] == "error"
+    assert report.scanned == 1 and report.failed == 1
+    # Every terminal refine resets the busy domain, whatever the attempt count.
+    assert domain_ref.get().to_dict()["agentStatus"] == "idle"
 
 
 def test_exhausted_refinement_errors_and_resets_the_domain(db) -> None:
@@ -236,6 +236,6 @@ def test_one_pass_reaps_both_domains_and_refinements(db) -> None:
 
     report = sweep(db)
 
-    assert report.scanned == 2 and report.requeued == 2  # one search + one refine, both re-queued
-    assert stuck_search.get().to_dict()["agentStatus"] == "pending"
-    assert stuck_refine.get().to_dict()["status"] == "pending"
+    assert report.scanned == 2 and report.failed == 2  # one search + one refine, both reaped
+    assert stuck_search.get().to_dict()["agentStatus"] == "error"
+    assert stuck_refine.get().to_dict()["status"] == "error"
