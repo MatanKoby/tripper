@@ -82,6 +82,23 @@ def test_destination_falls_back_to_place_text() -> None:
     assert request["destination"] == "Paris, France"
 
 
+def test_structured_place_sends_the_bare_city() -> None:
+    # The whole point of collecting city + country separately in the form (Batch 17): the agent
+    # resolves a bare city to an airport, and reported "couldn't match destination
+    # 'Barcelona, Spain'" when the FE sent one free-text locator instead.
+    request = _to_request(_trip(place={"city": "Barcelona", "country_code": "ES"}))
+    assert request is not None
+    assert request["destination"] == "Barcelona"
+
+
+def test_structured_place_wins_over_free_text() -> None:
+    # Both present: `city` is the resolvable one, so it must take precedence.
+    place = {"city": "Rome", "country_code": "IT", "text": "Rome, Italy"}
+    request = _to_request(_trip(place=place))
+    assert request is not None
+    assert request["destination"] == "Rome"
+
+
 def test_missing_origin_is_unroutable() -> None:
     # origin omitted -> the adapter can't build a valid structured request.
     assert _to_request(_trip(origin=None)) is None

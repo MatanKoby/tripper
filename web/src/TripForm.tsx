@@ -7,6 +7,7 @@ import {
   type FormState,
   type RefundablePref,
 } from "./buildTripInput";
+import { countryOptions } from "./countries";
 import { PRESETS } from "./presets";
 import {
   AMENITIES,
@@ -83,13 +84,28 @@ export default function TripForm({ onSubmit, submitting, disabled }: Props) {
       </div>
 
       <label>
-        Destination
+        Destination city
         <input
           type="text"
-          value={form.destination}
-          placeholder="e.g. Paris, France"
-          onChange={(e) => set("destination", e.target.value)}
+          value={form.destinationCity}
+          placeholder="e.g. Paris"
+          onChange={(e) => set("destinationCity", e.target.value)}
         />
+      </label>
+
+      <label>
+        Country
+        <select
+          value={form.destinationCountry}
+          onChange={(e) => set("destinationCountry", e.target.value)}
+        >
+          <option value="">Select a country</option>
+          {countryOptions().map(({ code, name }) => (
+            <option key={code} value={code}>
+              {name}
+            </option>
+          ))}
+        </select>
       </label>
 
       <label>

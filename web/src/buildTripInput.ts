@@ -1,12 +1,17 @@
 // Turn the wireframe form state into a clean TripInput, mirroring the client-side invariants the
 // backend's Pydantic contract enforces (spec/schema.md): a place locator, check_out > check_in,
 // adults >= 1, picks_per_lens >= 1. Empty optionals are omitted so the backend applies its defaults.
+import { COUNTRY_CODES } from "./countries";
 import type { Amenity, InterestGroup, TravelStyle, TripInput } from "./types";
 
 export type RefundablePref = "either" | "refundable" | "nonrefundable";
 
 export interface FormState {
-  destination: string; // place.text (the locator we expose in M1)
+  // The destination is collected structurally, not as one free-text string: the flight agent
+  // resolves `place.city` to an airport and cannot match a "City, Country" phrase
+  // (tripper/agents/flight_adapter.py, _destination).
+  destinationCity: string;
+  destinationCountry: string; // ISO-3166-1 alpha-2, "" until the user picks one
   desiredArea: string;
   checkIn: string; // "YYYY-MM-DD"
   checkOut: string;
@@ -31,7 +36,8 @@ export interface FormState {
 }
 
 export const EMPTY_FORM: FormState = {
-  destination: "",
+  destinationCity: "",
+  destinationCountry: "",
   desiredArea: "",
   checkIn: "",
   checkOut: "",
@@ -80,8 +86,12 @@ export type BuildResult =
   | { ok: false; error: string };
 
 export function buildTripInput(form: FormState): BuildResult {
-  const destination = form.destination.trim();
-  if (!destination) return { ok: false, error: "Enter a destination." };
+  const city = form.destinationCity.trim();
+  if (!city) return { ok: false, error: "Enter a destination city." };
+  const countryCode = form.destinationCountry.trim().toUpperCase();
+  if (countryCode && !COUNTRY_CODES.includes(countryCode)) {
+    return { ok: false, error: "Pick a country from the list." };
+  }
 
   if (!form.checkIn || !form.checkOut) {
     return { ok: false, error: "Pick both a check-in and a check-out date." };
@@ -106,7 +116,12 @@ export function buildTripInput(form: FormState): BuildResult {
   }
 
   const desiredArea = form.desiredArea.trim();
-  const place: TripInput["place"] = { text: destination };
+  // Structured when the country is known, so `place.city` reaches the flight adapter. Without it
+  // we fall back to the free-text locator, which still satisfies Place._require_locator but leaves
+  // flights unresolvable (spec/schema.md).
+  const place: TripInput["place"] = countryCode
+    ? { city, country_code: countryCode }
+    : { text: city };
   if (desiredArea) place.desired_area = desiredArea;
 
   const filters: NonNullable<TripInput["filters"]> = {};

@@ -41,7 +41,8 @@ export const PRESETS: Preset[] = [
       const checkIn = nextWeekday(6); // Saturday
       return {
         ...EMPTY_FORM,
-        destination: "Barcelona, Spain",
+        destinationCity: "Barcelona",
+        destinationCountry: "ES",
         checkIn: iso(checkIn),
         checkOut: iso(addDays(checkIn, 2)), // Sat -> Mon, 2 nights
         currency: "EUR",
@@ -63,7 +64,8 @@ export const PRESETS: Preset[] = [
       const checkIn = nextWeekday(5); // Friday
       return {
         ...EMPTY_FORM,
-        destination: "Paris, France",
+        destinationCity: "Paris",
+        destinationCountry: "FR",
         desiredArea: "Le Marais",
         checkIn: iso(checkIn),
         checkOut: iso(addDays(checkIn, 3)),
@@ -85,7 +87,8 @@ export const PRESETS: Preset[] = [
       const checkIn = nextWeekday(6); // Saturday
       return {
         ...EMPTY_FORM,
-        destination: "Rome, Italy",
+        destinationCity: "Rome",
+        destinationCountry: "IT",
         checkIn: iso(checkIn),
         checkOut: iso(addDays(checkIn, 2)),
         currency: "EUR",
