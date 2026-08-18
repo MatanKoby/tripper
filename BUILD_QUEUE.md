@@ -30,25 +30,4 @@ Tags: `[MANUAL]` = the user executes it (agents skip). `[NOT READY]` = blocked, 
 
 ---
 
-### Batch 17 — Structured destination (city + country) in the trip form  (dep: none)
-
-Context: the flight agent returns zero candidates for a normal search because it cannot resolve the
-destination it is handed. `buildTripInput.ts` hardcodes `place = { text: destination }` from one
-free-text field, so `place.city` is never set, and `_destination()` in `tripper/agents/flight_adapter.py`
-falls back to that raw text. The agent then reports `couldn't match destination 'Barcelona, Spain'
-to any city or airport`. The shipped presets seed exactly that broken shape, and the field
-placeholder ("e.g. Paris, France") teaches it. Splitting on the comma would only be a guess, so the
-fix is to collect the data structurally at the form.
-
-- **`web/src/countries.ts`** (new): the ISO-3166-1 alpha-2 code list. Names render through
-  `Intl.DisplayNames`, so only the codes are stored.
-- **`FormState`**: replace `destination` with `destinationCity` + `destinationCountry` (alpha-2).
-- **`TripForm.tsx`**: a City text input plus a Country select, replacing the single Destination field.
-- **`buildTripInput.ts`**: build `place = { city, country_code }` when both are present, keeping the
-  `{ text }` form as the fallback so `Place._require_locator` is still satisfied either way.
-- **`presets.ts`**: re-express the three presets as city + country code.
-- Backend stays unchanged: `_destination()` already prefers `place.city`. Add a `test_flight_adapter`
-  case pinning that a structured place yields the bare city.
-
-Files: `web/src/countries.ts` (new), `web/src/TripForm.tsx`, `web/src/buildTripInput.ts`,
-`web/src/presets.ts`, `tests/test_flight_adapter.py`.
+_(none)_

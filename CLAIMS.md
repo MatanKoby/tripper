@@ -19,11 +19,48 @@ Entry format:
 
 <!-- One entry per actively claimed batch. -->
 
+## Completed
+
 ### Batch 17 — Structured destination (city + country) in the trip form
 - Owner: claude
 - Started: 2026-08-18 12:23
+- Finished: 2026-08-18 12:26
+- Commit: f3e2d61
 
-## Completed
+**What shipped.** The trip form collects the destination as a city plus an ISO-3166-1 alpha-2
+country code, so `place.city` reaches the flight adapter.
+
+- **Why.** A live search returned zero flights with the warning `couldn't match destination
+  'Barcelona, Spain' to any city or airport`. `buildTripInput.ts` hardcoded
+  `place = { text: destination }` from a single free-text field, so `place.city` was never set and
+  `_destination()` (`tripper/agents/flight_adapter.py`) fell back to the raw phrase. The shipped
+  presets seeded that exact shape and the placeholder ("e.g. Paris, France") taught it. Splitting on
+  the comma was rejected as a guess, so the data is collected structurally at the source.
+- **`web/src/countries.ts`** (new) — the 249 alpha-2 codes from the public-domain `iso3166.tab`
+  shipped with the tz database. Only codes are stored; `Intl.DisplayNames` renders the names, so the
+  module stays small and localizes itself.
+- **`web/src/buildTripInput.ts`** — `FormState.destination` becomes `destinationCity` +
+  `destinationCountry`; `place` is `{ city, country_code }` when a country is chosen and keeps the
+  `{ text }` form otherwise, so `Place._require_locator` holds either way. Validates the code
+  against `COUNTRY_CODES`.
+- **`web/src/TripForm.tsx`** — a city input plus a country select replace the single field.
+- **`web/src/presets.ts`** — the three presets re-expressed as city + code.
+- **Backend unchanged**: `_destination()` already prefers `place.city`. Two tests pin that a
+  structured place yields the bare city, and that city wins over free text.
+
+**Verification.** `tsc --noEmit` and `vite build` clean; `ruff` clean; `pytest` 114 passed.
+
+**Not fixed here (different causes, same session).** The Nebius endpoint is **down**: every path
+(`/`, `/api/tags`, `/v1/models`, `/api/version`) returns 404 while TLS connects fine, so the hotel
+agent degrades to the heuristic scorer and the activities agent errors with `NotFoundError`. That is
+infrastructure, not config: the deploy now delivers `NEBIUS_ENDPOINT_ID` correctly, which is
+precisely why activities began attempting a call instead of silently mocking. Accommodations is
+otherwise healthy on `liteapi` (50 candidates, 15 shortlisted, 5 suggestions).
+
+**Follow-up worth a batch.** A dead LLM *degrades* the hotel agent but *kills* the activities agent.
+With the terminal-only reap from Batch 16, an errored domain is a dead end until the trip is
+resubmitted, so making the activities adapter degrade like the hotel one would be a real robustness
+win.
 
 ### Batch 16 — Sweeper recovery redesign + free-tier cost guardrails
 - Owner: claude
@@ -281,32 +318,3 @@ the deployed trigger behavior.
   itinerary's reservation items instead. (3) activities selection is `multi` and flights `single`
   (spec states only accommodations=single) — chosen here, worth confirming. (4) The langgraph
   `MemorySaver` emits harmless "Deserializing unregistered type" warnings to stderr per run; cosmetic.
-
-### Batch 12 — Backend fan-out & per-domain search run (domain-general)
-- Owner: claude
-- Started: 2026-07-17 06:24
-- Finished: 2026-07-17 07:30
-- Commit: fb2e68e
-
-**What shipped.** The M1 single-doc orchestrator is replaced by the M2 fan-out (`spec/flows.md`).
-The `Agent` seam (`tripper/agents/base.py`) is now domain-general: an adapter declares its `domain`
-+ `selection_mode` and returns a neutral `DomainSearchResult` (a list of `Suggestion` = stable id +
-`ResultItem` + optional lens, plus `diagnostics` / `warnings` / `counts`), never `HotelPayload`.
-`tripper/orchestrator.py` gained `fan_out` (trip `onCreate` → mark the trip `active`, idempotently
-create one `domains/{domain}` doc per active agent) and `run_search` (domain `onCreate` → claim/lease
-the domain doc on `agentStatus`, run the adapter, write `suggested/*`, drive to `idle`; a failure
-errors only that domain). `tripper/jobs.py`: `claim_job` is parametrized by `status_field`,
-`write_search_result` writes the candidates then flips the domain to `idle`, `write_run_error`
-replaces the single-doc terminal write (`write_done`/`write_error` removed). The hotel adapter now
-maps picks → `ResultItem` + `detail` (id = `"{lens}-{index}"` until the agent exposes a stable
-`Pick.id`, `spec/agents.md`). The sweeper reaps the `domains` collection group on `agentStatus`.
-`main.py` wires two create triggers (trip fan-out, domain search) + the sweeper.
-
-**Verification.** 66 tests pass against the Firestore emulator + the vendored hotel mock agent,
-including a full `fan_out` → `run_search` → `suggested/*` round-trip with the real `HotelAdapter`.
-`ruff check` clean.
-
-**Scope / follow-ups.** Only the hotel agent is active (this batch stays green with one domain);
-Batch 15 vendors flights + activities and activates all three. `TripSuggestions` remains in
-`contract.py` as documented M1 legacy (`spec/archive.md`). No Firestore rules change: search runs
-write via the Admin SDK, which bypasses rules.

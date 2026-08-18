@@ -10,6 +10,18 @@ picking a new claim. The full implementation history is in `git log` + `specflow
 Shipped <what> in <where>. Key commit `<sha>`. <One line on any follow-up deferred.>
 -->
 
+## Batch 17 — Structured destination (city + country) in the trip form
+Collected the destination as a city plus an ISO-3166-1 alpha-2 country code so `place.city` reaches
+the flight adapter. A live search had returned zero flights with `couldn't match destination
+'Barcelona, Spain' to any city or airport`: `buildTripInput.ts` hardcoded `place = { text: ... }`
+from one free-text field, the presets seeded that shape, and the placeholder taught it. New
+`web/src/countries.ts` holds the 249 alpha-2 codes from the public-domain `iso3166.tab`, with names
+from `Intl.DisplayNames`; `TripForm` gained a city input plus a country select; `place` is
+structured when a country is chosen and keeps the `{ text }` fallback otherwise. The backend needed
+no change since `_destination()` already prefers `place.city`, and two tests pin that. Key commit
+`f3e2d61`. Unrelated and still open: the Nebius endpoint 404s on every path, degrading the hotel
+scorer to heuristic and erroring the activities agent.
+
 ## Batch 16 — Sweeper recovery redesign + free-tier cost guardrails
 Retired the scheduled sweeper and put a resource ceiling on every function (`spec/flows.md` under
 *Sweeper*, `spec/architecture.md` under *Cost stance*). `sweep_stuck_jobs` and its Cloud Scheduler
