@@ -56,14 +56,40 @@ the frontend writes a job to Firestore and listens for the result while the back
 - **Region**: all GCP resources (Cloud Functions, Firestore, Cloud Scheduler) in **`us-central1`**,
   chosen for the broadest free-tier coverage and universal service support. Firestore uses the
   **regional** `us-central1` location (cheaper than multi-region), which is **permanent**.
-- **GCP services**: Cloud Functions Gen2 (event + scheduled), Firestore, Firebase Auth, Cloud
-  Scheduler. All within free tier for M1.
+- **GCP services**: Cloud Functions Gen2 (**event-triggered only**), Firestore, Firebase Auth.
+  **No Cloud Scheduler**: the sweep is opportunistic (`flows.md` under *Sweeper*). Everything the
+  project runs is inside the free tier, subject to the rules under *Cost stance* below.
 - **Access control replaces the old app-secret entirely.** The frontend is gated by Firebase Auth,
   the access allowlist, and Firestore security rules; the backend runs with the Firebase Admin SDK.
   There is no public endpoint to protect (`access.md`).
 - **GCP deploy auth** from Actions is **Workload Identity Federation** (no long-lived key); the
   deploy service account and the roles it needs are in `DEPLOY.md`. Infra provisioning steps are a
   `[MANUAL]` checklist you execute.
+
+## Cost stance
+
+The project must cost **₪0.00**, not "little". Two facts drive every decision here:
+
+- **Firestore's free quota applies only to the `(default)` database.** A *named* database is billed
+  from the first read, with no free allowance at all. Tripper's `(default)` database is regional
+  `us-central1` and reports `freeTier: true`. Never point the backend or the FE at a named database
+  (`FirestoreOptions.database`) without pricing it first; a named `dev-firestore` was the sole source
+  of this project's only real charge (`archive.md`).
+- **Compute, Cloud Scheduler, Cloud Build and Logging free tiers are per *billing account*, not per
+  project**, and this account carries the user's other projects. Firestore's quota is per project.
+  Idle background work therefore spends quota the rest of the account needs, which is why nothing
+  here polls and why Cloud Scheduler is unused: only **three** jobs are free account-wide.
+
+Standing rules:
+
+- Every function declares explicit `memory`, `timeout_sec`, and `max_instances`. These are a ceiling
+  against a runaway, not a tuning knob.
+- **Never set `min_instances`.** 0 is the default and the discipline.
+- No polling, no keep-warm pings, no scheduled work. A query that matches nothing still bills a read,
+  so periodic "check if anything is stuck" work is never free.
+- Deployed functions log at `WARNING`; Logging's allotment is account-wide.
+- Function images accumulate in Artifact Registry against 0.5 GB free, so the deploy keeps a cleanup
+  policy (`DEPLOY.md`).
 
 ## Cold starts & long runs
 

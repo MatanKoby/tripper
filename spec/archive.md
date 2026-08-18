@@ -36,3 +36,25 @@ One document per request. Path: `users/{uid}/trips/{tripId}`
 - `error`: `{ message, kind }`. Written by the backend when `status == "error"`.
 - `createdAt`, `updatedAt`: server timestamps.
 - Reliability fields: `startedAt`, `leaseExpiresAt`, `attempts`, `maxAttempts`, `lastError`.
+
+## Scheduled sweeper with re-queue (superseded by the opportunistic, terminal-only sweep in `flows.md`)
+
+Through Batch 13 the sweeper was a Cloud Scheduler job (`every 5 minutes`, `SWEEP_SCHEDULE` in
+`main.py`) that, for each run found `running` past its lease, **re-queued** it to `pending` while
+`attempts < maxAttempts`, and wrote terminal `error` only once attempts were exhausted. `maxAttempts`
+existed to stop a poison run from looping and burning spend.
+
+Retired in Batch 16 for two independent reasons.
+
+**It never recovered anything.** Every trigger is an `onCreate`, the stranded doc already exists, and
+`FirestoreOptions` (firebase-functions 0.6.0) exposes no `retry`, so a doc set back to `pending` was
+never picked up again. It could not reach the error path either, because `attempts` only increments
+on claim, so the run parked at `pending` indefinitely while the sweep, which queries only for
+`running`, never saw it again.
+
+**It was the project's entire cost.** The schedule accounted for roughly 98% of all function
+invocations and effectively 100% of billed Firestore reads: each pass issued two collection-group
+queries that returned nothing, and Firestore bills a minimum of one read per query even when it
+matches no documents (measured: 12,586 billed reads against only 691 documents actually read). It
+also consumed one of the three Cloud Scheduler jobs that are free per billing account. See
+`architecture.md` under *Cost stance*.

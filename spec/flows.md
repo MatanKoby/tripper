@@ -52,7 +52,7 @@ a snapshot.
 ## Idempotent claim & lease (per run)
 
 Both run kinds (search on a domain doc, refine on a refinement doc) use the same claim machinery on
-their **own** doc. Triggers are at-least-once and the sweeper may re-queue, so a run claims in a
+their **own** doc. Triggers are at-least-once, so a run claims in a
 transaction and proceeds only if the doc is `pending` OR (`running` AND `leaseExpiresAt < now`). On
 proceeding it sets `running`, `startedAt`, `attempts += 1`, and `leaseExpiresAt = now + budget`
 (budget covers the worst case: cold start + full loop, `architecture.md`). A duplicate delivery whose
@@ -73,11 +73,24 @@ is not reaped.
 
 ## Sweeper
 
-A scheduled function (Cloud Scheduler) runs `collectionGroup` queries for **domain docs** and
-**refinement docs** in `running` with `leaseExpiresAt < now`, and for each hit either **re-queues**
-it (`pending`) when `attempts < maxAttempts`, or writes terminal `error` once attempts are exhausted.
-It writes via the Admin SDK and needs a composite (collection-group) index per query. `maxAttempts`
-stops a poison run from looping and burning spend.
+A backstop for **hard crashes**, not a retry mechanism. It runs `collectionGroup` queries for
+**domain docs** and **refinement docs** in `running` with `leaseExpiresAt < now` and drives every hit
+straight to terminal `error`; a terminally-failed refinement also resets its parent domain to `idle`.
+It writes via the Admin SDK and needs a composite (collection-group) index per query.
+
+**It is not scheduled.** `sweep()` runs at the head of the trip `onCreate` fan-out, so it costs
+nothing while the app is idle and runs exactly when stale state starts to matter: someone is about to
+look at their trips. Why this is not a Cloud Scheduler job: `architecture.md` under *Cost stance*.
+
+**The reap is terminal, never a re-queue.** Nothing here can re-fire a run: every trigger is an
+`onCreate`, a stranded doc already exists, and the Firestore trigger options in `firebase-functions`
+expose no `retry`. A re-queue to `pending` would therefore park the doc forever rather than recover
+it, and it would never age into the error path either, since `attempts` only increments on claim. So
+a dead run is surfaced as `error` for the user to act on instead of being silently retried.
+`attempts` / `maxAttempts` stay on the doc as diagnostics but no longer gate the reap.
+
+Recovery is a user action: an `error` domain is terminal until the trip is resubmitted, because
+Refine is `idle`-gated (`ui.md`).
 
 ## Cold start
 
